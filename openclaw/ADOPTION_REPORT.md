@@ -18,8 +18,33 @@ przeniesiony 1:1 — wszystko to adaptacja konceptów do OpenClaw Format A.
 | `gstack-openclaw-scope-review` | `openclaw/skills/gstack-openclaw-scope-review/` | ✅ READY-TO-ACTIVATE (openclaw-extra) | 2 |
 | `code-review-and-quality` | `~/.openclaw/workspace/skills/code-review-and-quality/SKILL.md` | ✅ READY-TO-ACTIVATE (workspace skill) | 3 |
 | `continuous-checkpoint-mode` | `openclaw/skills/continuous-checkpoint-mode/` | ✅ READY-TO-ACTIVATE (openclaw-extra) | 4 |
+| `systematic-debugging` | `~/.openclaw/workspace/skills/systematic-debugging/SKILL.md` | ✅ READY-TO-ACTIVATE (workspace skill, gstack follow-up) | follow-up |
+| `subagent-driven-development` | `~/.openclaw/workspace/skills/subagent-driven-development/SKILL.md` | ✅ READY-TO-ACTIVATE (workspace skill, gstack follow-up) | follow-up |
 | Dispatch refinement | `openclaw/agents-gstack-section.md` | ✅ Mapping Format A → gstack tiers | 5 |
-| Sub-agent audit | ten raport | ✅ 3/3 READY-TO-ACTIVATE | 6 |
+| Sub-agent audit | ten raport | ✅ 3/3 READY-TO-ACTIVATE (+ 2/2 follow-up) | 6 |
+
+## Follow-up Enhancements (2026-06-28)
+
+Adam wybrał dalszą adopcję konceptów z gstack. Wzbogacono 2 istniejące workspace skills:
+
+### `systematic-debugging` enhancement (gstack `/investigate`)
+
+**Dodano:**
+- **Pattern Table** — mapowanie symptomu do rodziny błędu (race, nil propagation, state corruption, integration failure, config drift, stale cache, resource exhaustion, path/locale) + gdzie szukać.
+- **3-strike rule** — po 3 nieudanych hipotezach automatyczna eskalacja do Adama w formacie AskUserQuestion/Opcja N.
+- **Scope Lock** — przed fixem zablokowanie edycji do najwęższego katalogu z affected files.
+- **Sanitized external search** — `web_search` do pattern lookup, ale po usunięciu hostname/IP/path/token/data.
+- **Prior learnings lookup** — `memory_search` + QMD na wcześniejsze debugi tego samego obszaru.
+
+### `subagent-driven-development` enhancement (gstack `/autoplan`)
+
+**Dodano:**
+- **Dual-voice pre-flight plan review** — dla planów >3 taski lub ryzyka architectural: dwa niezależne sub-agenty (cheap fast + capable), tylko plan file, reconciliation przed Task 1.
+- **Dual-voice design review** — dla złożonych tasków: dwa design-review sub-agenty generujące competing sketches, potem **jeden** implementer wykonuje wybraną drogę.
+- **Explicit no-parallel-implementation constraint** — dual-voice nigdy nie oznacza równoległych implementerów.
+- **Model examples** z disclaimerem żeby weryfikować `openclaw models list`.
+
+**Audyt follow-up:** isolated sub-agent audit — oba READY-TO-ACTIVATE.
 
 ## What Was Ported (and why)
 
