@@ -50,94 +50,84 @@ Scope Plan Review to filozofia review, w której agent występuje w **jednym z 4
 
 ## Workflow / Process
 
-### Tryb 1: SCOPE EXPANSION (buduj katedrę)
+### Step 1: Gather inputs
+
+1. **Odczytaj plan / propozycję** — użyj `read` lub zaczerpnij z conversation context.
+2. **Odczytaj kontekst** — projekt, branch, deadline, zespół, priorytety.
+3. **Sprawdź sygnał trybu od Adama** — słowo-klucz (np. "zróbmy minimalnie" → REDUCTION).
+
+### Step 2: Pick mode
+
+Wybierz jeden z 4 trybów. **Nie jest to deterministyczny algorytm** — to heurystyka. Gdy sygnały są niejasne, **zapytaj Adama** który tryb chce.
+
+| Sygnał | Domyślny tryb | Pytanie do Adama |
+|---|---|---|
+| "10-star", "10x better", brak deadline | EXPANSION | "Czy tryb EXPANSION — szukać idealnej wersji?" |
+| Plan solidny, ale chcemy options | SELECTIVE | "Czy SELECTIVE — przedstawić expansion options do cherry-pick?" |
+| "Scope OK", focus na jakość | HOLD | "Czy HOLD — robić plan bulletproof bez zmian scope?" |
+| "Minimalnie", deadline, validation | REDUCTION | "Czy REDUCTION — wyciąć do MVP?" |
+| Brak sygnału / niejasny | — | "Który tryb scope review: EXPANSION / SELECTIVE / HOLD / REDUCTION?" |
+
+### Tryb 1: SCOPE EXPANSION
 
 **Postawa:** Wizualizujesz platonic ideal. Pchasz scope W GÓRĘ.
 
 - Pytaj "what would make this 10x better for 2x the effort?"
 - Dla każdej expansion idei: przedstaw indywidualnie, Adam opt-in/out.
 - Cel: katedra, nie bungalow.
-- **Stosuj gdy:** Adam mówi "we want the 10-star product", brak deadline pressure, project typu 0→1.
 
-### Tryb 2: SELECTIVE EXPANSION (rigorous + taste)
+### Tryb 2: SELECTIVE EXPANSION
 
 **Postawa:** Rigorous reviewer z taste. Trzymasz obecny scope jako baseline, robisz go bulletproof. Osobno, surface'ujesz każdą expansion opportunity.
 
 - Dla każdej expansion idei: przedstaw indywidualnie z osobną decyzją.
 - Adam cherry-pick'uje to co chce.
-- **Stosuj gdy:** Plan jest solidny, ale chcesz Adamowi dać explicit informed choice o additions.
 
-### Tryb 3: HOLD SCOPE (rigorous reviewer)
+### Tryb 3: HOLD SCOPE
 
-**Postura:** Plan's scope jest zaakceptowany. Twoja robota to zrobić go bulletproof.
+**Postawa:** Plan's scope jest zaakceptowany. Twoja robota to zrobić go bulletproof.
 
 - Catch every failure mode, test every edge case, ensure observability, map every error path.
 - **NIE** dodawaj scope'a cicho. **NIE** zmniejszaj scope'a cicho.
 - Pytaj gdy widzisz gap (ale tylko jeśli wymaga scope change).
-- **Stosuj gdy:** Adam mówi "scope jest OK", focus jest na execution quality.
 
-### Tryb 4: SCOPE REDUCTION (surgeon)
+### Tryb 4: SCOPE REDUCTION
 
-**Postura:** Znajdź minimum viable version który daje core outcome. Wytnij resztę. Bądź bezwzględny.
+**Postawa:** Znajdź minimum viable version który daje core outcome. Wytnij resztę. Bądź bezwzględny.
 
 - MVP cut bezwzględnie.
 - Dla każdej ciętej rzeczy: uzasadnij dlaczego to nie core.
-- **Stosuj gdy:** Adam mówi "zróbmy to minimalnie", deadline pressure, validation phase.
 
-### Algorytm wyboru trybu
+### Step 3: Present expansion options (per-expansion)
 
-```python
-def pick_mode(signals: dict) -> str:
-    if signals.get("explicit_mode"):
-        return signals["explicit_mode"]
-    if signals.get("deadline_pressure") or signals.get("validation_phase"):
-        return "REDUCTION"
-    if signals.get("project_stage") == "0_to_1" and not signals.get("deadline"):
-        return "EXPANSION"
-    if signals.get("plan_is_solid"):
-        return "SELECTIVE"
-    return "HOLD"
-```
-
-## Per-Expansion Format (gstack-style)
-
-Gdy prezentujesz scope expansion idea:
+Gdy tryb wymaga expansion options, dla każdej idei emituj pytanie w formacie:
 
 ```
 Opcja <N> — Include <idea-name>?
-
 Kontekst: <project/branch>, obecny scope: <baseline summary>
-
 ELI10: <2-4 zdania, plain English, name the stakes>
-
 Stakes: <co się psuje jeśli include lub exclude>
-
 Recommendation: <Include|Defer|Cut> because <reason>
-
 Note: opcje różnią się rodzajem (Include/Defer/Cut/Hold), nie zakresem
-
 A) Include (recommended)
-  ✅ <konkretny pro — 10x better? saves time? reduces risk?>
-  ❌ <konkretny con — extra time? scope creep risk?>
-
-B) Defer
-  ✅ <can do later without blocking>
-  ❌ <might forget or lose momentum>
-
-C) Cut
-  ✅ <reduces scope, faster ship>
-  ❌ <missing capability, may regret>
-
-D) Hold (stop chain, discuss)
-  ✅ <need more info / clarification>
-  ❌ <pauses progress>
-
+  ✅ <pro>
+  ❌ <con>
+B) Defer ...
 Net: <one-line synthesis>
 ```
 
-Pełny format z wymaganiami: patrz `ASKUSERQUESTION_FORMAT.md`.
+Pełny format: `ASKUSERQUESTION_FORMAT.md` w fork gstack (lub rekonstruuj z sekcji Format w tym skillu).
 
-## Iron Laws (non-negotiable)
+### Step 4: Record durable decisions
+
+- Każda scope change = `memory_add` (kategoria `decision`, język polski).
+- Każdy opt-in/out = notka w daily memory jeśli tymczasowy.
+
+### Step 5: Hand off
+
+- EXPANSION/SELECTIVE approvals → `code-review-and-quality` (Scope Drift Detection w trakcie implementacji).
+- HOLD review findings → `verification-before-completion-openclaw` do weryfikacji na końcu.
+- REDUCTION cuts → `finishing-a-development-branch` do squash/cleanup.
 
 1. **Adam jest 100% w kontroli.** Każda scope change jest explicit opt-in. Nigdy cicho add/remove.
 2. **Per-expansion opt-in.** Nigdy bundle multiple expansions w jedną decyzję.
@@ -152,25 +142,42 @@ Pełny format z wymaganiami: patrz `ASKUSERQUESTION_FORMAT.md`.
 - **Memory:** durable scope decisions zapisuj przez `memory_add` (kategoria `decision`).
 - **Pairs with:**
   - `verification-before-completion-openclaw` — po scope decision, verification wymaga świeżego dowodu że scope jest realizowany.
-  - `code-review-and-quality` — po expansion approval, diff review sprawdza czy scope został zachowany (Etap 3: Scope Drift Detection).
+  - `code-review-and-quality` — po expansion approval, diff review sprawdza czy scope został zachowany (Scope Drift Detection).
 
 ## Compatibility
 
-- **OpenClaw runtime:** skill dostępny w agentach: `main`, `techleader-developer-reviewer`, `agent-orchestrator` (do potwierdzenia po Etap 6).
+- **OpenClaw runtime:** skill dostępny w agentach: `main`, `techleader-developer-reviewer`, `agent-orchestrator`.
 - **Format A headers:** zgodny z 12 standardowymi nagłówkami.
 - **Pin:** gstack v1.58.5.0 commit `11de390` (MIT).
 - **Polska treść:** zachowana zgodnie z Adam preferencją dla durable facts.
+
+## Tools / Commands
+
+- `memory_add` — zapisz durable scope decisions (kategoria `decision`).
+- `memory_search` — sprawdź poprzednie scope decisions / standing rules.
+- `read` / `grep` — odczytaj plan file / conversation context.
+- `sessions_spawn` (opcjonalnie) — izolowany sub-agent do adversarial review (`doubt-driven-development`).
+
+## Constraints
+
+1. **Adam jest 100% w kontroli.** Każda scope change jest explicit opt-in. Nigdy cicho add/remove.
+2. **Per-expansion opt-in.** Nigdy bundle multiple expansions w jedną decyzję.
+3. **Honest trade-offs.** Każda opcja ma uczciwe ✅ i ❌ (≥40 chars).
+4. **Completeness scores dla coverage różnic** (10/7/3). Kind-note gdy options różnią się rodzajem.
+5. **Hard-stop dla destructive.** Jeśli scope reduction obejmuje już shipped functionality → STOP, zapytaj Adama.
+6. **Dokumentuj decisions.** Każdy durable scope decision = `memory_add` (kategoria `decision`, polskie słowa).
 
 ## Failure Modes
 
 | Failure | Przyczyna | Mitigacja |
 |---|---|---|
-| Bundle expansions w jedną decyzję | Lenistwo | Per-expansion opt-in (Iron Law 2) |
+| Bundle expansions w jedną decyzję | Lenistwo | Per-expansion opt-in (Constraint 2) |
 | Silent scope reduction | "To oczywiste" | HOLD/REDUCTION mode wymaga explicit approval |
-| Brak uczciwych ❌ | Confirmation bias | Iron Law 3 (≥40 chars per bullet) |
-| Wrong mode pick | Błędna interpretacja sygnałów | Algorytm + jeśli niejasne, pytaj Adama o tryb |
+| Brak uczciwych ❌ | Confirmation bias | Constraint 3 (≥40 chars per bullet) |
+| Wrong mode pick | Błędna interpretacja sygnałów | Heurystyka w Step 2 — gdy niejasne, pytaj Adama |
 | Expansion bez trade-off | "To zawsze dobre" | Każda expansion ma con (czas, scope creep, complexity) |
 | Skip review dla "małych" zmian | Bias do scope | Even small changes merit review if architecturally relevant |
+| Over-reliance na pseudo-code | Model traktuje heurystykę jako deterministyczną regułę | Step 2 jawnie mówi "zapytaj Adama" dla niejasnych sygnałów |
 
 ## Security Audit
 

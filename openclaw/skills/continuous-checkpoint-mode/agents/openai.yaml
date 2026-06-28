@@ -1,6 +1,6 @@
 interface:
   display_name: "continuous-checkpoint-mode"
-  short_description: "Auto-commit postępu w trakcie długich sesji (WIP z blokiem [gstack-context]). Adaptacja gstack Continuous Checkpoint Mode. Domyślnie OFF — explicit opt-in."
-  default_prompt: "Use $continuous-checkpoint-mode when working on long sessions (backtests, migrations, multi-file refactors) and Adam has enabled continuous checkpoint via config or explicit flag. OFF by default — never auto-activate."
+  short_description: "Auto-commit progress during long sessions (WIP commits with [gstack-context] blocks). gstack Continuous Checkpoint Mode adaptation. OFF by default — explicit opt-in required."
+  default_prompt: "Use $continuous-checkpoint-mode only when Adam has explicitly enabled continuous checkpointing via ~/.openclaw/workspace/.checkpoint-config.json or a direct instruction. OFF by default. Requires branch allowlist, per-file git add, WIP: prefix, and [gstack-context] block. Squash WIP commits at session end via finishing-a-development-branch."
 policy:
   allow_implicit_invocation: false

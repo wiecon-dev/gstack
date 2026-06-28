@@ -1,6 +1,6 @@
 interface:
   display_name: "gstack-openclaw-scope-review"
-  short_description: "Scope plan review z 4 trybami (EXPANSION/SELECTIVE/HOLD/REDUCTION). Adaptacja gstack /plan-ceo-review do OpenClaw. Użyj gdy Adam prosi o review planu lub decyzję o rozszerzeniu/zwężeniu scope."
-  default_prompt: "Use $gstack-openclaw-scope-review when reviewing plans, challenging proposals, or making scope decisions. HARD GATE: Adam jest 100% w kontroli — nigdy cicho add/remove scope."
+  short_description: "Scope plan review with four modes: EXPANSION / SELECTIVE / HOLD / REDUCTION. Use when Adam asks for plan review, challenge proposal, scope check, or expand/reduce decision."
+  default_prompt: "Use $gstack-openclaw-scope-review when Adam asks for plan review, challenge proposal, scope check, or expand/reduce decision. HARD GATE: Adam is 100% in control — never silently add or remove scope. Always ask for explicit opt-in per expansion. Use AskUserQuestion format (ASKUSERQUESTION_FORMAT.md)."
 policy:
   allow_implicit_invocation: false
