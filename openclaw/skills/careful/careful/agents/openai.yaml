@@ -1,0 +1,42 @@
+interface:
+  skill_name: careful
+  version: 1.0.0
+  description: Pre-exec safety guardrail. Warns before destructive commands and requires Adam's confirmation.
+  inputs:
+    - OpenClaw exec tool input JSON (stdin)
+  outputs:
+    - JSON: {decision, pattern, warning}
+
+policy:
+  activation: before_exec
+  fail_mode: open
+  requires_user_confirmation: true
+  protected_patterns:
+    - rm_recursive
+    - drop_table
+    - truncate
+    - git_force_push
+    - git_reset_hard
+    - git_discard
+    - kubectl_delete
+    - docker_destructive
+  safe_exceptions:
+    - node_modules
+    - ".next"
+    - dist
+    - __pycache__
+    - ".cache"
+    - build
+    - ".turbo"
+    - coverage
+  enforcement: soft_agent_discipline
+  override: per_call_Adam_confirmation
+
+tools:
+  - Bash
+  - Read
+  - message
+
+dependencies:
+  python3: required_for_fallback_json_parsing
+  bash: required

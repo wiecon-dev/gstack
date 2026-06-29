@@ -1,0 +1,39 @@
+interface:
+  skill_name: dx-audit
+  version: 1.0.0
+  description: Static developer-experience audit from local artifacts. Produces a DX scorecard with evidence and improvement roadmap.
+  inputs:
+    - Project root path
+    - Product type (CLI / SDK / Library / Framework / Web API / Tool)
+    - Optional prior dx-audit baseline scores
+  outputs:
+    - Markdown DX scorecard (8 dimensions, TTHW estimate, verdict)
+
+policy:
+  activation: on_user_request
+  method: static_artifact_analysis
+  requires_browser: false
+  evidence_required: true
+  score_range: 0_to_10
+  dimensions: 8
+  dimension_names:
+    - Getting Started
+    - API_CLI_SDK Ergonomics
+    - Error Messages
+    - Documentation
+    - Upgrade Path
+    - Developer Environment
+    - Community Ecosystem
+    - DX Measurement Feedback
+  tthw_inference: from_docs
+  no_live_signup: true
+  no_network_calls: true
+
+tools:
+  - Read
+  - Bash
+  - message
+
+dependencies:
+  bash: required
+  read: required
