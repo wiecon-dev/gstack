@@ -107,6 +107,24 @@ if [ -z "$WARN" ] && printf '%s' "$CMD" | grep -qE 'docker\s+(rm\s+-f|system\s+p
   PATTERN="docker_destructive"
 fi
 
+# sudo (any sudo command)
+if [ -z "$WARN" ] && printf '%s' "$CMD" | grep -qE '\bsudo\b'; then
+  WARN="sudo command detected. Running with elevated privileges. Confirm with Adam before proceeding."
+  PATTERN="sudo"
+fi
+
+# chmod 777/666/000 (dangerous permissions)
+if [ -z "$WARN" ] && printf '%s' "$CMD" | grep -qE 'chmod\s+(777|666|000)\b'; then
+  WARN="Dangerous file permissions (chmod 777/666/000). May expose sensitive files or secrets. Confirm with Adam."
+  PATTERN="chmod_dangerous"
+fi
+
+# apt purge / apt remove (package removal)
+if [ -z "$WARN" ] && printf '%s' "$CMD" | grep -qE 'apt\s+(purge|remove)'; then
+  WARN="Package removal detected (apt purge/remove). May break system dependencies. Confirm with Adam."
+  PATTERN="apt_remove"
+fi
+
 # --- Output ---
 if [ -n "$WARN" ]; then
   WARN_ESCAPED=$(printf '%s' "$WARN" | sed 's/"/\\"/g')
