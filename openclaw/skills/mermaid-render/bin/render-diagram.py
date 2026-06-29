@@ -110,8 +110,9 @@ def render_artifacts(mmd_path, outdir, slug=None):
     png_out = outdir / f"{slug}.png"
     excalidraw_out = outdir / f"{slug}.excalidraw"
 
-    # Copy .mmd output
-    shutil.copy2(mmd_path, mmd_out)
+    # Copy .mmd output (skip if same file)
+    if mmd_path != mmd_out:
+        shutil.copy2(mmd_path, mmd_out)
 
     server, url = serve_bundle(bundle_path)
     try:
