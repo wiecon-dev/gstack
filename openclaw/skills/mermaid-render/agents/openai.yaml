@@ -1,0 +1,36 @@
+interface:
+  skill_name: mermaid-render
+  version: 1.0.0
+  description: Turn a description or mermaid source into .mmd + .svg + .png + .excalidraw. Offline rendering via vendored bundle and Playwright.
+  inputs:
+    - English description or .mmd source path
+    - Output directory
+    - Optional slug
+  outputs:
+    - JSON: {success, slug, outdir, files: {mmd, svg, png, excalidraw?}, is_flowchart, excalidraw_rendered}
+
+policy:
+  activation: on_user_request
+  rendering_engine: playwright_chromium_local
+  bundle: self_contained_offline
+  output_formats:
+    - mmd
+    - svg
+    - png
+    - excalidraw
+  excalidraw_only_flowcharts: true
+  source_of_truth: mmd_file
+  override: per_call_user_request
+
+tools:
+  - Read
+  - Write
+  - Bash
+  - message
+
+dependencies:
+  python3: required
+  uv: required
+  playwright: managed_by_uv
+  chromium: managed_by_playwright
+  diagram-render.html: required_vendored_bundle
