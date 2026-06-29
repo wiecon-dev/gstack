@@ -30,6 +30,11 @@ case "${1:-}" in
     exit 1
     ;;
   *)
+    if [ ! -d "$1" ]; then
+      REASON_ESCAPED=$(printf '%s' "$1" | sed 's/"/\\"/g')
+      printf '{"decision":"error","reason":"not_a_directory","path":"%s"}\n' "$REASON_ESCAPED" >&2
+      exit 1
+    fi
     # Resolve to absolute, ensure trailing slash
     TARGET="$(cd "$1" 2>/dev/null && pwd || { echo "Path not found: $1" >&2; exit 1; })"
     TARGET="${TARGET%/}/"

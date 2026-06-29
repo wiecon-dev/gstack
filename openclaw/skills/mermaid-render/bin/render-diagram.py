@@ -28,7 +28,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -129,23 +128,16 @@ def render_artifacts(mmd_path, outdir, slug=None):
             # base64 encode source for safe JS injection
             src_b64 = base64.b64encode(mermaid_src.encode("utf-8")).decode("ascii")
 
-            # render SVG
-            svg_result = page.evaluate(
-                f"window.__renderMermaid('diagram-1', decodeURIComponent(escape(atob('{src_b64}'))))"
-            )
-            if isinstance(svg_result, dict) and "error" in svg_result:
-                return {"error": f"mermaid render error: {svg_result.get('error')}", "exit_code": 1}
-            svg_text = svg_result if isinstance(svg_result, str) else str(svg_result)
+            # render SVG (using Playwright safe arg passing)
+            svg_text = page.evaluate("([id_name, src]) => window.__renderMermaid(id_name, src)", ("diagram-1", mermaid_src))
+            if isinstance(svg_text, dict) and "error" in svg_text:
+                return {"error": f"mermaid render error: {svg_text.get('error')}", "exit_code": 1}
+            if not isinstance(svg_text, str):
+                svg_text = str(svg_text)
             svg_out.write_text(svg_text, encoding="utf-8")
 
-            # Set window.__svg to rendered SVG for __rasterize
-            escaped_svg = svg_text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-            page.evaluate(f"window.__svg = `{escaped_svg}`; true")
-
             # render PNG (rasterize SVG at width 1950)
-            png_b64 = page.evaluate(
-                "window.__rasterize(window.__svg, 1950)"
-            )
+            png_b64 = page.evaluate("([svg, width]) => window.__rasterize(svg, width)", (svg_text, 1950))
             if isinstance(png_b64, str) and png_b64.startswith("data:image/png;base64,"):
                 png_b64 = png_b64.split(",", 1)[1]
             png_bytes = base64.b64decode(png_b64)
@@ -155,9 +147,7 @@ def render_artifacts(mmd_path, outdir, slug=None):
             excalidraw_ok = False
             if is_flowchart(mermaid_src):
                 try:
-                    scene_result = page.evaluate(
-                        f"window.__mermaidToExcalidraw(decodeURIComponent(escape(atob('{src_b64}'))))"
-                    )
+                    scene_result = page.evaluate("([src]) => window.__mermaidToExcalidraw(src)", (mermaid_src,))
                     if isinstance(scene_result, str):
                         excalidraw_out.write_text(scene_result, encoding="utf-8")
                         excalidraw_ok = True

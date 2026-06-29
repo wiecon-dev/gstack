@@ -119,7 +119,9 @@ cd ~/.openclaw/workspace/skills/mermaid-render && \
 uv run python bin/render-diagram.py \
   --mmd /tmp/myflow.mmd --outdir /home/openclaw/.openclaw/media/diagrams/ --slug myflow
 
-# Generate from description (optional helper, requires local LLM on 11435)
+# Generate from description (optional helper, configurable endpoint/model)
+OPENCLAW_LLM_BASE_URL=http://localhost:11434/v1 \
+MODEL= \
 bash ~/.openclaw/workspace/skills/mermaid-render/bin/mermaid-generate.sh \
   "user login flow: browser -> API -> auth -> DB" \
   /home/openclaw/.openclaw/media/diagrams/ \
@@ -134,6 +136,7 @@ bash ~/.openclaw/workspace/skills/mermaid-render/bin/mermaid-generate.sh \
 - **No CDN**: bundle is self-contained; works offline.
 - **PNG size**: fixed 1950 px width (matches gstack default).
 - **Source of truth**: `.mmd` is the single editable source. Re-render from `.mmd` to update artifacts.
+- **Generation helper dependency**: `mermaid-generate.sh` calls an OpenAI-compatible chat completions endpoint (configurable, default `http://localhost:11434/v1`) and lets the server pick its default model unless `MODEL` is set. It does not hardcode a specific model.
 - **UTF-8 support**: non-ASCII labels handled via `decodeURIComponent(escape(atob(...)))`.
 
 ## Examples
@@ -171,7 +174,7 @@ Output:
 ## Compatibility
 
 - **OpenClaw**: works with Bash + Read + Write tools; rendering is local Python via uv.
-- **Models**: diagram generation can use any LLM; default helper uses local Gemma 4 on port 11435.
+- **Models**: diagram generation can use any LLM via the configurable helper; rendering itself is model-agnostic.
 - **Platforms**: Linux/macOS/Windows via Playwright.
 
 ## Security Audit

@@ -16,6 +16,15 @@ policy:
   evidence_required: true
   score_range: 0_to_10
   dimensions: 8
+  dimension_names:
+    - Getting Started
+    - API_CLI_SDK Ergonomics
+    - Error Messages
+    - Documentation
+    - Upgrade Path
+    - Developer Environment
+    - Community Ecosystem
+    - DX Measurement Feedback
   tthw_inference: from_docs
   no_live_signup: true
   no_network_calls: true

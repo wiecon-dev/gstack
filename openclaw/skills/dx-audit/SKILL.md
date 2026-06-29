@@ -300,6 +300,17 @@ Score meaning:
 
 ## Scorecard Template
 
+The scorecard covers exactly the 8 dimensions described in the 8 Audit Passes above:
+
+1. Getting Started
+2. API/CLI/SDK Ergonomics
+3. Error Messages
+4. Documentation
+5. Upgrade Path
+6. Developer Environment
+7. Community & Ecosystem
+8. DX Measurement & Feedback
+
 ```markdown
 # DX Audit — [Project Name]
 

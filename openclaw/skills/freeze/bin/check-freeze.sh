@@ -22,8 +22,8 @@ if [ ! -f "$FREEZE_FILE" ]; then
   exit 0
 fi
 
-FREEZE_DIR=$(tr -d '[:space:]' < "$FREEZE_FILE")
-if [ -z "$FREEZE_DIR" ]; then
+FREEZE_DIR_RAW=$(tr -d '[:space:]' < "$FREEZE_FILE")
+if [ -z "$FREEZE_DIR_RAW" ]; then
   echo '{"decision":"allow","reason":"freeze_dir_empty"}'
   exit 0
 fi
@@ -54,23 +54,30 @@ case "$FILE_PATH" in
   *) FILE_PATH="$(pwd)/$FILE_PATH" ;;
 esac
 
-# Normalize
-FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+# Use realpath if available for robust symlink/.. resolution; fall back to cd/pwd-P
+if command -v realpath >/dev/null 2>&1; then
+  FREEZE_DIR=$(realpath -m "$FREEZE_DIR_RAW")
+  FILE_PATH=$(realpath -m "$FILE_PATH")
+else
+  # Normalize manually
+  FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+  _resolve_path() {
+    local _dir _base
+    _dir="$(dirname "$1")"
+    _base="$(basename "$1")"
+    _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
+    printf '%s/%s' "$_dir" "$_base"
+  }
+  FILE_PATH=$(_resolve_path "$FILE_PATH")
+  FREEZE_DIR=$(_resolve_path "$FREEZE_DIR_RAW")
+fi
 
-# Resolve symlinks and .. sequences (POSIX-portable)
-_resolve_path() {
-  local _dir _base
-  _dir="$(dirname "$1")"
-  _base="$(basename "$1")"
-  _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
-  printf '%s/%s' "$_dir" "$_base"
-}
-FILE_PATH=$(_resolve_path "$FILE_PATH")
-FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")
+# Ensure boundary ends with exactly one slash for prefix comparison
+FREEZE_DIR="${FREEZE_DIR%/}/"
 
 # Check: does the file path start with the freeze directory?
 case "$FILE_PATH" in
-  "${FREEZE_DIR}/"*|"${FREEZE_DIR}")
+  "${FREEZE_DIR}"*|"${FREEZE_DIR%/}")
     echo '{"decision":"allow","reason":"within_freeze_boundary"}'
     ;;
   *)
