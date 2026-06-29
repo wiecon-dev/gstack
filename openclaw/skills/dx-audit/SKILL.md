@@ -6,9 +6,10 @@ triggers:
   - "dx audit"
   - "developer experience audit"
   - "dx scorecard"
-  - "review DX"
+  - "dx-review"
   - "audit onboarding"
   - "check dev experience"
+  - "run dx audit"
 allowed-tools:
   - Read
   - Bash
