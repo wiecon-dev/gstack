@@ -1,0 +1,6 @@
+interface:
+  display_name: "qa"
+  short_description: "Systematically QA test a web application and fix bugs found. (gstack)"
+  default_prompt: "Use qa when requested."
+policy:
+  allow_implicit_invocation: false

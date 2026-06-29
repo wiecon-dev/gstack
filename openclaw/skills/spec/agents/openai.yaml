@@ -1,0 +1,6 @@
+interface:
+  display_name: "spec"
+  short_description: "Turn vague intent into a precise, executable spec in five phases. (gstack)"
+  default_prompt: "Use spec when requested."
+policy:
+  allow_implicit_invocation: false

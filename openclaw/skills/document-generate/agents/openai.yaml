@@ -1,0 +1,6 @@
+interface:
+  display_name: "document-generate"
+  short_description: "Generate missing documentation from scratch for a feature, module, or entire project. (gstack)"
+  default_prompt: "Use document-generate when requested."
+policy:
+  allow_implicit_invocation: false

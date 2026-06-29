@@ -1,0 +1,6 @@
+interface:
+  display_name: "context-save"
+  short_description: "Save working context. (gstack)"
+  default_prompt: "Use context-save when requested."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "design-shotgun"
+  short_description: "Design shotgun: generate multiple AI design variants, open a comparison board, collect structured feedback, and iterate. (gstack)"
+  default_prompt: "Use design-shotgun when requested."
+policy:
+  allow_implicit_invocation: false

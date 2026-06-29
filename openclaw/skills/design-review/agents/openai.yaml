@@ -1,0 +1,6 @@
+interface:
+  display_name: "design-review"
+  short_description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them. (gstack)"
+  default_prompt: "Use design-review when requested."
+policy:
+  allow_implicit_invocation: false

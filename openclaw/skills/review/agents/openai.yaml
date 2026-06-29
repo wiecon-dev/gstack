@@ -1,0 +1,6 @@
+interface:
+  display_name: "review"
+  short_description: "Pre-landing PR review. (gstack)"
+  default_prompt: "Use review when requested."
+policy:
+  allow_implicit_invocation: false

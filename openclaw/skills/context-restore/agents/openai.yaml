@@ -1,0 +1,6 @@
+interface:
+  display_name: "context-restore"
+  short_description: "Restore working context saved earlier by /context-save. (gstack)"
+  default_prompt: "Use context-restore when requested."
+policy:
+  allow_implicit_invocation: false

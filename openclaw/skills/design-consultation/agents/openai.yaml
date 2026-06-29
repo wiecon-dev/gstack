@@ -1,0 +1,6 @@
+interface:
+  display_name: "design-consultation"
+  short_description: "Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview... "
+  default_prompt: "Use design-consultation when requested."
+policy:
+  allow_implicit_invocation: false
