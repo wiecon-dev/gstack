@@ -1,0 +1,6 @@
+interface:
+  display_name: "retro"
+  short_description: "Weekly engineering retrospective with commit analysis. Use when asked for weekly retro, what shipped this week, or engineering retrospective."
+  default_prompt: "Use retro when Adam asks for weekly retro, what shipped this week, or engineering retrospective. Analyze commit history, work patterns, and code quality metrics."
+policy:
+  allow_implicit_invocation: false

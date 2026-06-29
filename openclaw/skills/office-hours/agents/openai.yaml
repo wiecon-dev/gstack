@@ -1,0 +1,6 @@
+interface:
+  display_name: "office-hours"
+  short_description: "Brainstorm and evaluate ideas before coding. Use when asked to brainstorm, evaluate whether an idea is worth building, or think through a new product idea."
+  default_prompt: "Use office-hours when Adam asks to brainstorm, evaluate an idea, or think through a design direction before any code is written. Focus on idea quality, not implementation."
+policy:
+  allow_implicit_invocation: false

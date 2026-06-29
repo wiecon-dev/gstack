@@ -1,0 +1,6 @@
+interface:
+  display_name: "ceo-review"
+  short_description: "CEO-style plan review with 4 modes: EXPANSION / SELECTIVE / HOLD / REDUCTION. Use when Adam asks for plan review, challenge proposal, or expand/reduce decision."
+  default_prompt: "Use ceo-review when Adam asks for plan review, challenge proposal, or expand/reduce decision. HARD GATE: Adam is 100% in control — never silently add or remove scope. Always ask for explicit opt-in per expansion."
+policy:
+  allow_implicit_invocation: false

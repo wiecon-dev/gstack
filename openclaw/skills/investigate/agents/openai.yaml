@@ -1,0 +1,6 @@
+interface:
+  display_name: "investigate"
+  short_description: "Systematic debugging with root cause investigation. Use when asked to debug, fix a bug, investigate an error, or do root cause analysis."
+  default_prompt: "Use investigate when Adam reports errors, stack traces, unexpected behavior, or says something stopped working. NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST."
+policy:
+  allow_implicit_invocation: false
