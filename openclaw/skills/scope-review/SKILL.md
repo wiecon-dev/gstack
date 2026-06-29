@@ -1,5 +1,5 @@
 ---
-name: "gstack-openclaw-scope-review"
+name: "scope-review"
 description: "Użyj gdy Adam prosi o review planu, podważenie propozycji, scope check, albo decyzję expand/reduce. Adaptacja gstack /plan-ceo-review z 4 trybami: EXPANSION/SELECTIVE/HOLD/REDUCTION."
 ---
 
