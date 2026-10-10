@@ -26,11 +26,13 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   runAgentSdkTest,
+  RateLimitExhaustedError,
   resolveClaudeBinary,
   type AgentSdkResult,
   type SystemPromptOption,
 } from './helpers/agent-sdk-runner';
 import { EvalCollector, getProjectEvalDir } from './helpers/eval-store';
+import { createEvalRunId } from './helpers/eval-lifecycle';
 import {
   OVERLAY_FIXTURES,
   type OverlayFixture,
@@ -46,14 +48,11 @@ const describeE2E = shouldRun ? describe : describe.skip;
 // The existing paid evals violate this by passing descriptive names like
 // 'e2e-opus-47' — a pre-existing pattern that only works because bun-test
 // runs without strict typechecking. We stay conforming here.
-const evalCollector = shouldRun ? new EvalCollector('e2e') : null;
-
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
-const runId = new Date()
-  .toISOString()
-  .replace(/[:.]/g, '')
-  .replace('T', '-')
-  .slice(0, 15);
+const runId = createEvalRunId();
+const evalCollector = shouldRun
+  ? new EvalCollector('e2e', undefined, { runId, collectorId: 'overlay-harness' })
+  : null;
 const TRANSCRIPTS_DIR = path.join(
   path.dirname(getProjectEvalDir()),
   'transcripts',
@@ -183,9 +182,9 @@ async function runArm(
           model: sdkResult.model,
           first_response_ms: sdkResult.firstResponseMs,
           max_inter_turn_ms: sdkResult.maxInterTurnMs,
-        });
+        }, sdkResult.evalAttempt);
       } catch (err) {
-        if (err instanceof Error && err.name === 'RateLimitExhaustedError') {
+        if (err instanceof RateLimitExhaustedError) {
           result.rateLimitExhausted++;
           // Record a failed trial so the collector captures the attempt.
           evalCollector?.addTest({
@@ -197,7 +196,7 @@ async function runArm(
             cost_usd: 0,
             exit_reason: 'rate_limit_exhausted',
             error: err.message,
-          });
+          }, err.evalAttempt);
         } else {
           throw err;
         }

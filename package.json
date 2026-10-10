@@ -9,6 +9,7 @@
     "make-pdf": "./make-pdf/dist/pdf"
   },
   "scripts": {
+    "openspec": "scripts/openspec-safe.sh",
     "build": "bash scripts/build.sh",
     "vendor:xterm": "mkdir -p extension/lib && cp node_modules/xterm/lib/xterm.js extension/lib/xterm.js && cp node_modules/xterm/css/xterm.css extension/lib/xterm.css && cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js extension/lib/xterm-addon-fit.js",
     "dev:make-pdf": "bun run make-pdf/src/cli.ts",
@@ -74,6 +75,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
     "@anthropic-ai/sdk": "^0.78.0",
+    "@fission-ai/openspec": "1.13.2",
     "xterm": "5",
     "xterm-addon-fit": "^0.8.0"
   }

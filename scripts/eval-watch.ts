@@ -1,8 +1,9 @@
 /**
  * Live E2E test watcher dashboard.
  *
- * Reads heartbeat (e2e-live.json) for current test status and
- * partial eval results (_partial-e2e.json) for completed tests.
+ * Reads append-only lifecycle journals for active/stale attempts and
+ * isolated partial eval results for completed tests. The legacy heartbeat
+ * remains a fallback for runs produced by older code.
  * Renders a terminal dashboard every 1s.
  *
  * Usage: bun run eval:watch [--tail]
@@ -11,10 +12,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getProjectEvalDir, loadPartialEvalResults } from '../test/helpers/eval-store';
+import {
+  readEvalLifecycleJournal,
+  summarizeEvalLifecycle,
+  type EvalAttemptSummary,
+} from '../test/helpers/eval-lifecycle';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
-const PARTIAL_PATH = path.join(GSTACK_DEV_DIR, 'evals', '_partial-e2e.json');
+const EVAL_DIR = getProjectEvalDir();
+const PROJECT_DIR = path.dirname(EVAL_DIR);
+const PARTIAL_PATH = path.join(EVAL_DIR, '_partial');
 const STALE_THRESHOLD_SEC = 600; // 10 minutes
 
 export interface HeartbeatData {
@@ -41,6 +50,38 @@ export interface PartialData {
   }>;
   total_cost_usd: number;
   _partial?: boolean;
+  _run_id?: string;
+  timestamp?: string;
+}
+
+export function selectWatchState<T extends PartialData>(
+  allAttempts: EvalAttemptSummary[],
+  allPartials: T[],
+): { attempts: EvalAttemptSummary[]; partials: T[] } {
+  const activeRunIds = new Set(
+    allAttempts
+      .filter((attempt) => attempt.status === 'running' || attempt.status === 'stale')
+      .map((attempt) => attempt.runId),
+  );
+
+  if (activeRunIds.size > 0) {
+    return {
+      attempts: allAttempts.filter((attempt) => activeRunIds.has(attempt.runId)),
+      partials: allPartials.filter((partial) => partial._run_id && activeRunIds.has(partial._run_id)),
+    };
+  }
+
+  const latestRunId = [...allPartials]
+    .filter((partial) => partial._run_id)
+    .sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))[0]?._run_id;
+  if (latestRunId) {
+    return {
+      attempts: allAttempts.filter((attempt) => attempt.runId === latestRunId),
+      partials: allPartials.filter((partial) => partial._run_id === latestRunId),
+    };
+  }
+
+  return { attempts: [], partials: allPartials.filter((partial) => !partial._run_id) };
 }
 
 /** Read and parse a JSON file, returning null on any error. */
@@ -71,10 +112,18 @@ function formatDuration(sec: number): string {
 }
 
 /** Render dashboard from heartbeat + partial data. Pure function for testability. */
-export function renderDashboard(heartbeat: HeartbeatData | null, partial: PartialData | null): string {
+export function renderDashboard(
+  heartbeat: HeartbeatData | null,
+  partialInput: PartialData | PartialData[] | null,
+  attempts: EvalAttemptSummary[] = [],
+): string {
   const lines: string[] = [];
+  const partials = partialInput ? (Array.isArray(partialInput) ? partialInput : [partialInput]) : [];
+  const completedTests = partials.flatMap((partial) => partial.tests || []);
+  const lifecycleActive = attempts.filter((attempt) => attempt.status === 'running');
+  const lifecycleStale = attempts.filter((attempt) => attempt.status === 'stale');
 
-  if (!heartbeat && !partial) {
+  if (!heartbeat && partials.length === 0 && attempts.length === 0) {
     lines.push('E2E Watch — No active run detected');
     lines.push('');
     lines.push(`Heartbeat: ${HEARTBEAT_PATH} (not found)`);
@@ -84,14 +133,16 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
     return lines.join('\n');
   }
 
-  const runId = heartbeat?.runId || 'unknown';
+  const runIds = [...new Set(attempts.map((attempt) => attempt.runId))];
+  const runId = runIds[0] || heartbeat?.runId || 'unknown';
+  const runLabel = runIds.length > 1 ? `${runIds.length} active runs` : runId;
   const elapsed = heartbeat?.elapsedSec || 0;
-  lines.push(`E2E Watch \u2014 Run ${runId} \u2014 ${formatDuration(elapsed)}`);
+  lines.push(`E2E Watch \u2014 Run ${runLabel} \u2014 ${formatDuration(elapsed)}`);
   lines.push('\u2550'.repeat(55));
 
   // Completed tests from partial
-  if (partial?.tests) {
-    for (const t of partial.tests) {
+  if (completedTests.length > 0) {
+    for (const t of completedTests) {
       const icon = t.passed ? '\u2713' : '\u2717';
       const cost = `$${t.cost_usd.toFixed(2)}`;
       const dur = `${Math.round(t.duration_ms / 1000)}s`;
@@ -102,7 +153,21 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
   }
 
   // Current test from heartbeat
-  if (heartbeat && heartbeat.status === 'running') {
+  for (const attempt of [...lifecycleActive, ...lifecycleStale]) {
+    const name = attempt.testName.length > 30
+      ? attempt.testName.slice(0, 27) + '...'
+      : attempt.testName.padEnd(30);
+    const lastSignalMs = new Date(attempt.lastSignalAt).getTime();
+    const ageSec = Math.max(0, Math.round((Date.now() - lastSignalMs) / 1000));
+    const detail = attempt.lastTool
+      ? `turn ${attempt.turn ?? 0}   last: ${attempt.lastTool}`
+      : 'awaiting first tool';
+    lines.push(` ${attempt.status === 'stale' ? '⚠' : '⧖'} ${name}  ${formatDuration(ageSec).padStart(6)}  ${detail}`);
+    if (attempt.status === 'stale') lines.push(' ⚠  STALE: no lifecycle signal within the freshness threshold');
+  }
+
+  // Legacy fallback when no lifecycle-aware active attempt exists.
+  if (lifecycleActive.length === 0 && lifecycleStale.length === 0 && heartbeat && heartbeat.status === 'running') {
     const name = heartbeat.currentTest.length > 30
       ? heartbeat.currentTest.slice(0, 27) + '...'
       : heartbeat.currentTest.padEnd(30);
@@ -119,17 +184,31 @@ export function renderDashboard(heartbeat: HeartbeatData | null, partial: Partia
   lines.push('\u2500'.repeat(55));
 
   // Summary
-  const completedCount = partial?.tests?.length || 0;
-  const totalCost = partial?.total_cost_usd || 0;
-  const running = heartbeat?.status === 'running' ? 1 : 0;
-  lines.push(` Completed: ${completedCount}  Running: ${running}  Cost: $${totalCost.toFixed(2)}  Elapsed: ${formatDuration(elapsed)}`);
+  const completedCount = completedTests.length;
+  const totalCost = partials.reduce((sum, partial) => sum + (partial.total_cost_usd || 0), 0);
+  const running = attempts.length > 0
+    ? lifecycleActive.length
+    : (heartbeat?.status === 'running' ? 1 : 0);
+  lines.push(` Completed: ${completedCount}  Running: ${running}  Stale: ${lifecycleStale.length}  Cost: $${totalCost.toFixed(2)}  Elapsed: ${formatDuration(elapsed)}`);
 
-  if (heartbeat?.runId) {
-    const logPath = path.join(GSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
+  if (runId !== 'unknown') {
+    const logPath = path.join(PROJECT_DIR, 'e2e-runs', runId, 'progress.log');
     lines.push(` Logs: ${logPath}`);
   }
 
   return lines.join('\n');
+}
+
+function findLifecycleJournalFiles(): string[] {
+  const runsDir = path.join(PROJECT_DIR, 'e2e-runs');
+  try {
+    return fs.readdirSync(runsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(runsDir, entry.name, 'lifecycle.jsonl'))
+      .filter((file) => fs.existsSync(file));
+  } catch {
+    return [];
+  }
 }
 
 // --- Main ---
@@ -139,7 +218,11 @@ if (import.meta.main) {
 
   const render = () => {
     let heartbeat = readJSON<HeartbeatData>(HEARTBEAT_PATH);
-    const partial = readJSON<PartialData>(PARTIAL_PATH);
+    const allPartials = loadPartialEvalResults(EVAL_DIR);
+    const lifecycleRecords = findLifecycleJournalFiles()
+      .flatMap((file) => readEvalLifecycleJournal(file));
+    const allAttempts = summarizeEvalLifecycle(lifecycleRecords, Date.now(), STALE_THRESHOLD_SEC);
+    const { attempts, partials } = selectWatchState(allAttempts, allPartials);
 
     // Auto-clear heartbeat if the process is dead
     if (heartbeat?.pid && !isProcessAlive(heartbeat.pid)) {
@@ -151,11 +234,13 @@ if (import.meta.main) {
 
     // Clear screen
     process.stdout.write('\x1B[2J\x1B[H');
-    process.stdout.write(renderDashboard(heartbeat, partial) + '\n');
+    process.stdout.write(renderDashboard(heartbeat, partials, attempts) + '\n');
 
     // --tail: show last 10 lines of progress.log
-    if (showTail && heartbeat?.runId) {
-      const logPath = path.join(GSTACK_DEV_DIR, 'e2e-runs', heartbeat.runId, 'progress.log');
+    const activeRunId = attempts.find((attempt) => attempt.status === 'running' || attempt.status === 'stale')?.runId
+      ?? heartbeat?.runId;
+    if (showTail && activeRunId) {
+      const logPath = path.join(PROJECT_DIR, 'e2e-runs', activeRunId, 'progress.log');
       try {
         const content = fs.readFileSync(logPath, 'utf-8');
         const tail = content.split('\n').filter(l => l.trim()).slice(-10);

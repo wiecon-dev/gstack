@@ -19,7 +19,7 @@ import * as path from 'path';
 import {
   ROOT,
   describeIfSelected, testIfSelected,
-  createEvalCollector, finalizeEvalCollector,
+  createEvalCollector, finalizeEvalCollector, startE2EAttempt,
 } from './helpers/e2e-helpers';
 
 const evalCollector = createEvalCollector('e2e-sidebar');
@@ -88,6 +88,7 @@ describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
   });
 
   testIfSelected('sidebar-url-accuracy', async () => {
+    const evalAttempt = startE2EAttempt('sidebar-url-accuracy');
     // Fresh session
     await api('/sidebar-session/new', { method: 'POST' });
     fs.writeFileSync(queueFile, '');
@@ -146,7 +147,7 @@ describeIfSelected('Sidebar URL accuracy E2E', ['sidebar-url-accuracy'], () => {
       duration_ms: 0,
       cost_usd: 0,
       exit_reason: 'success',
-    });
+    }, evalAttempt);
   }, 30_000);
 });
 
@@ -258,6 +259,7 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
   });
 
   testIfSelected('sidebar-css-interaction', async () => {
+    const evalAttempt = startE2EAttempt('sidebar-css-interaction');
     // Fresh session + clean queue
     try { await api('/sidebar-session/new', { method: 'POST' }); } catch {}
     fs.writeFileSync(queueFile, '');
@@ -337,7 +339,7 @@ describeIfSelected('Sidebar CSS interaction E2E', ['sidebar-css-interaction'], (
       duration_ms: duration,
       cost_usd: 0,
       exit_reason: doneEntry ? 'success' : 'timeout',
-    });
+    }, evalAttempt);
   }, 300_000);
 });
 
@@ -424,6 +426,7 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
   });
 
   testIfSelected('sidebar-navigate', async () => {
+    const evalAttempt = startE2EAttempt('sidebar-navigate');
     await api('/sidebar-session/new', { method: 'POST' });
     fs.writeFileSync(queueFile, '');
     const startTime = Date.now();
@@ -466,6 +469,6 @@ describeIfSelected('Sidebar navigate E2E', ['sidebar-navigate'], () => {
       duration_ms: duration,
       cost_usd: 0,
       exit_reason: doneEntry ? 'success' : 'timeout',
-    });
+    }, evalAttempt);
   }, 120_000);
 });

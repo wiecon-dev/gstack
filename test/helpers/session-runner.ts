@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getProjectEvalDir } from './eval-store';
+import { recordEvalProgress, startEvalAttempt, type EvalAttempt } from './eval-lifecycle';
 import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
@@ -50,6 +51,8 @@ export interface SkillTestResult {
   firstResponseMs: number;
   /** Peak latency between consecutive tool calls, in ms */
   maxInterTurnMs: number;
+  /** Lifecycle handle used by EvalCollector to persist the matching END record. */
+  evalAttempt?: EvalAttempt;
 }
 
 const BROWSE_ERROR_PATTERNS = [
@@ -157,6 +160,14 @@ export async function runSkillTest(options: {
     } catch { /* non-fatal */ }
   }
 
+  const evalAttempt = runDir && runId && testName
+    ? startEvalAttempt({
+        runId,
+        testName,
+        journalPath: path.join(runDir, 'lifecycle.jsonl'),
+      })
+    : undefined;
+
   // Spawn claude -p with streaming NDJSON output. Prompt piped via stdin to
   // avoid shell escaping issues. --verbose is required for stream-json mode.
   const args = [
@@ -247,6 +258,14 @@ export async function runSkillTest(options: {
                 lastToolTime = now;
                 const progressLine = `  [${elapsed}s] turn ${liveTurnCount} tool #${liveToolCount}: ${item.name}(${truncate(JSON.stringify(item.input || {}), 80)})\n`;
                 process.stderr.write(progressLine);
+
+                if (evalAttempt) {
+                  recordEvalProgress(evalAttempt, {
+                    turn: liveTurnCount,
+                    toolCount: liveToolCount,
+                    lastTool: item.name || 'unknown',
+                  });
+                }
 
                 // Persist progress.log
                 if (runDir) {
@@ -374,5 +393,5 @@ export async function runSkillTest(options: {
     turnsUsed,
   };
 
-  return { toolCalls, browseErrors, exitReason, duration, output: resultLine?.result || '', costEstimate, transcript, model, firstResponseMs, maxInterTurnMs };
+  return { toolCalls, browseErrors, exitReason, duration, output: resultLine?.result || '', costEstimate, transcript, model, firstResponseMs, maxInterTurnMs, evalAttempt };
 }

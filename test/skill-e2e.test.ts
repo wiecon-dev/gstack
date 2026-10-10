@@ -4,6 +4,7 @@ import type { SkillTestResult } from './helpers/session-runner';
 import { outcomeJudge, callJudge } from './helpers/llm-judge';
 import { EvalCollector, judgePassed } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
+import { createEvalRunId } from './helpers/eval-lifecycle';
 import { startTestServer } from '../browse/test/test-server';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 import { spawnSync } from 'child_process';
@@ -57,11 +58,13 @@ function testIfSelected(testName: string, fn: () => Promise<void>, timeout: numb
   (shouldRun ? test : test.skip)(testName, fn, timeout);
 }
 
-// Eval result collector — accumulates test results, writes to ~/.gstack-dev/evals/ on finalize
-const evalCollector = evalsEnabled ? new EvalCollector('e2e') : null;
-
 // Unique run ID for this E2E session — used for heartbeat + per-run log directory
-const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
+const runId = createEvalRunId();
+
+// Eval result collector — accumulates test results, writes to the project eval directory on finalize
+const evalCollector = evalsEnabled
+  ? new EvalCollector('e2e', undefined, { runId, collectorId: 'skill-e2e' })
+  : null;
 
 /** DRY helper to record an E2E test result into the eval collector. */
 function recordE2E(name: string, suite: string, result: SkillTestResult, extra?: Partial<EvalTestEntry>) {
@@ -70,7 +73,7 @@ function recordE2E(name: string, suite: string, result: SkillTestResult, extra?:
     ? `${result.toolCalls[result.toolCalls.length - 1].tool}(${JSON.stringify(result.toolCalls[result.toolCalls.length - 1].input).slice(0, 60)})`
     : undefined;
 
-  evalCollector?.addTest({
+  const entry: EvalTestEntry = {
     name, suite, tier: 'e2e',
     passed: result.exitReason === 'success' && result.browseErrors.length === 0,
     duration_ms: result.duration,
@@ -83,7 +86,8 @@ function recordE2E(name: string, suite: string, result: SkillTestResult, extra?:
     timeout_at_turn: result.exitReason === 'timeout' ? result.costEstimate.turnsUsed : undefined,
     last_tool_call: lastTool,
     ...extra,
-  });
+  };
+  evalCollector?.addTest(entry, result.evalAttempt);
 }
 
 let testServer: ReturnType<typeof startTestServer>;

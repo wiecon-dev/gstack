@@ -12,6 +12,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { randomUUID } from 'crypto';
+import { finishEvalAttempt, type EvalAttempt } from './eval-lifecycle';
 
 const SCHEMA_VERSION = 1;
 const LEGACY_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
@@ -40,6 +42,31 @@ export function getProjectEvalDir(): string {
 }
 
 const DEFAULT_EVAL_DIR = getProjectEvalDir();
+
+export function getPartialEvalFiles(evalDir: string = DEFAULT_EVAL_DIR): string[] {
+  const files: string[] = [];
+  const partialDir = path.join(evalDir, '_partial');
+  try {
+    for (const file of fs.readdirSync(partialDir)) {
+      if (file.endsWith('.json')) files.push(path.join(partialDir, file));
+    }
+  } catch { /* no isolated partial directory yet */ }
+
+  const legacy = path.join(evalDir, '_partial-e2e.json');
+  if (fs.existsSync(legacy)) files.push(legacy);
+  return files.sort();
+}
+
+export function loadPartialEvalResults(evalDir: string = DEFAULT_EVAL_DIR): EvalResult[] {
+  const results: EvalResult[] = [];
+  for (const file of getPartialEvalFiles(evalDir)) {
+    try {
+      const result = JSON.parse(fs.readFileSync(file, 'utf8')) as EvalResult;
+      if (result._partial === true) results.push(result);
+    } catch { /* ignore incomplete or malformed diagnostic snapshots */ }
+  }
+  return results;
+}
 
 // --- Interfaces ---
 
@@ -105,6 +132,8 @@ export interface EvalResult {
   wall_clock_ms?: number;     // wall-clock from collector creation to finalization (shows parallelism)
   tests: EvalTestEntry[];
   _partial?: boolean;  // true for incremental saves, absent in final
+  _run_id?: string;
+  _collector_id?: string;
 }
 
 export interface TestDelta {
@@ -196,6 +225,7 @@ export function findPreviousRun(
       const raw = fs.readFileSync(fullPath, 'utf-8');
       // Quick parse — only grab the fields we need
       const data = JSON.parse(raw);
+      if (data._partial === true) continue;
       if (data.tier !== tier) continue;
       entries.push({ file: fullPath, branch: data.branch || '', timestamp: data.timestamp || '' });
     } catch { continue; }
@@ -650,15 +680,34 @@ export class EvalCollector {
   private finalized = false;
   private evalDir: string;
   private createdAt = Date.now();
+  private runId: string;
+  private collectorId: string;
+  private writeStderr: (line: string) => void;
 
-  constructor(tier: 'e2e' | 'llm-judge', evalDir?: string) {
+  constructor(
+    tier: 'e2e' | 'llm-judge',
+    evalDir?: string,
+    identity?: { runId?: string; collectorId?: string; writeStderr?: (line: string) => void },
+  ) {
     this.tier = tier;
     this.evalDir = evalDir || DEFAULT_EVAL_DIR;
+    this.runId = identity?.runId
+      ?? process.env.GSTACK_EVAL_RUN_ID
+      ?? `${new Date().toISOString().replace(/[:.]/g, '')}-${process.pid}`;
+    this.collectorId = identity?.collectorId ?? randomUUID();
+    this.writeStderr = identity?.writeStderr ?? ((line: string) => process.stderr.write(line));
   }
 
-  addTest(entry: EvalTestEntry): void {
+  addTest(entry: EvalTestEntry, attempt?: EvalAttempt): void {
     this.tests.push(entry);
     this.savePartial();
+    if (attempt) {
+      finishEvalAttempt(attempt, {
+        passed: entry.passed,
+        durationMs: entry.duration_ms,
+        exitReason: entry.exit_reason ?? (entry.passed ? 'success' : 'failed'),
+      });
+    }
   }
 
   /** Write incremental results after each test. Atomic write, non-fatal. */
@@ -685,14 +734,26 @@ export class EvalCollector {
         total_duration_ms: totalDuration,
         tests: this.tests,
         _partial: true,
+        _run_id: this.runId,
+        _collector_id: this.collectorId,
       };
 
-      fs.mkdirSync(this.evalDir, { recursive: true });
-      const partialPath = path.join(this.evalDir, '_partial-e2e.json');
-      const tmp = partialPath + '.tmp';
+      const partialDir = path.join(this.evalDir, '_partial');
+      fs.mkdirSync(partialDir, { recursive: true });
+      const safeRunId = this.runId.replace(/[^a-zA-Z0-9._-]/g, '-');
+      const safeCollectorId = this.collectorId.replace(/[^a-zA-Z0-9._-]/g, '-');
+      const partialPath = path.join(partialDir, `${safeRunId}-${safeCollectorId}.json`);
+      const tmp = `${partialPath}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(partial, null, 2) + '\n');
       fs.renameSync(tmp, partialPath);
-    } catch { /* non-fatal — partial saves are best-effort */ }
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? String(error.code)
+        : 'unknown';
+      try {
+        this.writeStderr(`[eval] WARN partial result write failed (${code})\n`);
+      } catch { /* observability warnings must not change the eval result */ }
+    }
   }
 
   async finalize(): Promise<string> {
@@ -727,7 +788,9 @@ export class EvalCollector {
     fs.mkdirSync(this.evalDir, { recursive: true });
     const dateStr = timestamp.replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
     const safeBranch = git.branch.replace(/[^a-zA-Z0-9._-]/g, '-');
-    const filename = `${version}-${safeBranch}-${this.tier}-${dateStr}.json`;
+    const safeRunId = this.runId.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const safeCollectorId = this.collectorId.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const filename = `${version}-${safeBranch}-${this.tier}-${dateStr}-${safeRunId}-${safeCollectorId}.json`;
     const filepath = path.join(this.evalDir, filename);
     fs.writeFileSync(filepath, JSON.stringify(result, null, 2) + '\n');
 

@@ -134,3 +134,12 @@ bun run skill:check      # health dashboard for all skills
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
 - State paths resolve via `bin/gstack-paths` (sourced via `eval "$(...)"`). Honors `GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLANS_DIR`.
 - The `claude` CLI binary resolves via `browse/src/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.
+
+## OpenSpec pilot
+
+- OpenSpec records agreed requirements and change state; it does not override this file.
+- Run OpenSpec only through `scripts/openspec-safe.sh` (or `bun run openspec --`).
+- Before implementation, create proposal/specs/design/tasks and obtain Adam's explicit approval.
+- Apply one vertical TDD slice at a time; fresh test output is required before checking off a task.
+- Do not use `--force`, Stores, bulk archive, cloud-agent setup, generated OpenSpec skills, or global installs.
+- Archive only after strict OpenSpec validation, project verification, and Adam's explicit approval.

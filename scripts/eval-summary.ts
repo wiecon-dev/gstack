@@ -30,7 +30,9 @@ if (files.length === 0) {
 const results: EvalResult[] = [];
 for (const file of files) {
   try {
-    results.push(JSON.parse(fs.readFileSync(path.join(EVAL_DIR, file), 'utf-8')));
+    const result = JSON.parse(fs.readFileSync(path.join(EVAL_DIR, file), 'utf-8'));
+    if (result._partial === true) continue;
+    results.push(result);
   } catch { continue; }
 }
 

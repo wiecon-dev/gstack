@@ -3,6 +3,7 @@ import { runSkillTest } from './helpers/session-runner';
 import type { SkillTestResult } from './helpers/session-runner';
 import { EvalCollector } from './helpers/eval-store';
 import type { EvalTestEntry } from './helpers/eval-store';
+import { createEvalRunId } from './helpers/eval-lifecycle';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -15,11 +16,13 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const evalsEnabled = !!process.env.EVALS;
 const describeE2E = evalsEnabled ? describe : describe.skip;
 
-// Eval result collector
-const evalCollector = evalsEnabled ? new EvalCollector('e2e-routing') : null;
-
 // Unique run ID for this session
-const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
+const runId = createEvalRunId();
+
+// Eval result collector
+const evalCollector = evalsEnabled
+  ? new EvalCollector('e2e', undefined, { runId, collectorId: 'e2e-routing' })
+  : null;
 
 // --- Diff-based test selection ---
 // Journey routing tests use E2E_TOUCHFILES (entries prefixed 'journey-' in touchfiles.ts).
@@ -162,7 +165,7 @@ function recordRouting(name: string, result: SkillTestResult, expectedSkill: str
     output: result.output?.slice(0, 2000),
     turns_used: result.costEstimate.turnsUsed,
     exit_reason: result.exitReason,
-  });
+  }, result.evalAttempt);
 }
 
 // Skip individual tests based on selectedTests (diff + tier filtering)

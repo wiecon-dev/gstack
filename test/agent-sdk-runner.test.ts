@@ -30,6 +30,8 @@ import {
   type QueryProvider,
   type AgentSdkResult,
 } from '../test/helpers/agent-sdk-runner';
+import { EvalCollector } from '../test/helpers/eval-store';
+import { readEvalLifecycleJournal } from '../test/helpers/eval-lifecycle';
 import {
   validateFixtures,
   fanoutPass,
@@ -227,6 +229,45 @@ function freshSem(cap = 10): void {
 // ---------------------------------------------------------------------------
 
 describe('runAgentSdkTest — happy path', () => {
+  test('returns a lifecycle attempt that the collector closes after persistence', async () => {
+    freshSem();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-lifecycle-'));
+    const journalPath = path.join(tmpDir, 'lifecycle.jsonl');
+    const stderrLines: string[] = [];
+    try {
+      const stub: StubConfig = {
+        streams: [[
+          systemInit(),
+          assistantTurn([{ type: 'tool_use', name: 'Read', input: { path: 'a.txt' } }]),
+          resultSuccess(0.01, 1),
+        ]],
+        calls: [],
+      };
+      const result = await runAgentSdkTest({
+        ...BASE_OPTS,
+        queryProvider: makeStubProvider(stub),
+        testName: 'sdk-lifecycle',
+        runId: 'sdk-run',
+        lifecycleJournalPath: journalPath,
+        lifecycleStderr: (line) => stderrLines.push(line),
+      });
+
+      expect(result.evalAttempt?.runId).toBe('sdk-run');
+      expect(readEvalLifecycleJournal(journalPath).map((record) => record.event)).toEqual(['start', 'progress']);
+
+      const collector = new EvalCollector('e2e', path.join(tmpDir, 'evals'));
+      collector.addTest({
+        name: 'sdk-lifecycle', suite: 'sdk', tier: 'e2e', passed: true,
+        duration_ms: result.durationMs, cost_usd: result.costUsd, exit_reason: result.exitReason,
+      }, result.evalAttempt);
+
+      expect(readEvalLifecycleJournal(journalPath).map((record) => record.event)).toEqual(['start', 'progress', 'end']);
+      expect(stderrLines.some((line) => line.includes('PASS sdk-lifecycle'))).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test('collects events, assistantTurns, toolCalls, and result fields', async () => {
     freshSem();
     const stub: StubConfig = {
@@ -492,6 +533,78 @@ describe('runAgentSdkTest — rate-limit retry', () => {
     });
     expect(result.exitReason).toBe('success');
     expect(stub.calls.length).toBe(2);
+  });
+
+  test('a retried rate limit stays open until the collector records the final result', async () => {
+    freshSem();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-retry-lifecycle-'));
+    const journalPath = path.join(tmpDir, 'lifecycle.jsonl');
+    try {
+      const stub: StubConfig = {
+        streams: [
+          [],
+          [systemInit(), assistantTurn([{ type: 'text', text: 'ok' }]), resultSuccess()],
+        ],
+        throwAt: 0,
+        throwError: Object.assign(new Error('429 too many requests'), { status: 429 }),
+        calls: [],
+      };
+      const result = await runAgentSdkTest({
+        ...BASE_OPTS,
+        queryProvider: makeStubProvider(stub),
+        maxRetries: 2,
+        testName: 'sdk-retry',
+        runId: 'sdk-retry-run',
+        lifecycleJournalPath: journalPath,
+        lifecycleStderr: () => {},
+      });
+
+      const beforePersist = readEvalLifecycleJournal(journalPath);
+      expect(beforePersist.map((record) => record.event)).toEqual(['start']);
+
+      const collector = new EvalCollector('e2e', path.join(tmpDir, 'evals'));
+      collector.addTest({
+        name: 'sdk-retry', suite: 'sdk', tier: 'e2e', passed: true,
+        duration_ms: result.durationMs, cost_usd: result.costUsd, exit_reason: result.exitReason,
+      }, result.evalAttempt);
+
+      const ends = readEvalLifecycleJournal(journalPath).filter((record) => record.event === 'end');
+      expect(ends).toHaveLength(1);
+      expect(ends[0]?.status).toBe('pass');
+      expect(ends[0]?.exit_reason).toBe('success');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('an unregistered non-retryable failure does not write a false END', async () => {
+    freshSem();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-noretry-lifecycle-'));
+    const journalPath = path.join(tmpDir, 'lifecycle.jsonl');
+    try {
+      let caught: unknown = null;
+      try {
+        await runAgentSdkTest({
+          ...BASE_OPTS,
+          queryProvider: () => {
+            const gen = (async function* (): AsyncGenerator<SDKMessage, void> {
+              throw new Error('generic auth failure');
+            })();
+            return gen as unknown as Query;
+          },
+          testName: 'sdk-noretry',
+          runId: 'sdk-noretry-run',
+          lifecycleJournalPath: journalPath,
+          lifecycleStderr: () => {},
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(readEvalLifecycleJournal(journalPath).map((record) => record.event)).toEqual(['start']);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('retryable on result-message rate-limit, then succeeds', async () => {

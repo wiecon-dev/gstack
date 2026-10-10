@@ -8,7 +8,8 @@
 import '../../lib/conductor-env-shim';
 import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
 import type { SkillTestResult } from './session-runner';
-import { EvalCollector, judgePassed } from './eval-store';
+import { EvalCollector, getProjectEvalDir, judgePassed } from './eval-store';
+import { createEvalRunId, startEvalAttempt, type EvalAttempt } from './eval-lifecycle';
 import type { EvalTestEntry } from './eval-store';
 import { judgeRecommendation, type RecommendationScore } from './llm-judge';
 import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES } from './touchfiles';
@@ -79,7 +80,7 @@ export function describeIfSelected(name: string, testNames: string[], fn: () => 
 }
 
 // Unique run ID for this E2E session — used for heartbeat + per-run log directory
-export const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
+export const runId = createEvalRunId();
 
 export const browseBin = path.resolve(ROOT, 'browse', 'dist', 'browse');
 
@@ -158,7 +159,16 @@ export function dumpOutcomeDiagnostic(dir: string, label: string, report: string
  * Create an EvalCollector for a specific suite. Returns null if evals are not enabled.
  */
 export function createEvalCollector(suite: string): EvalCollector | null {
-  return evalsEnabled ? new EvalCollector(suite) : null;
+  return evalsEnabled ? new EvalCollector('e2e', undefined, { runId, collectorId: suite }) : null;
+}
+
+export function startE2EAttempt(testName: string): EvalAttempt | undefined {
+  if (!evalsEnabled) return undefined;
+  return startEvalAttempt({
+    runId,
+    testName,
+    journalPath: path.join(path.dirname(getProjectEvalDir()), 'e2e-runs', runId, 'lifecycle.jsonl'),
+  });
 }
 
 /** DRY helper to record an E2E test result into the eval collector. */
@@ -174,7 +184,7 @@ export function recordE2E(
     ? `${result.toolCalls[result.toolCalls.length - 1].tool}(${JSON.stringify(result.toolCalls[result.toolCalls.length - 1].input).slice(0, 60)})`
     : undefined;
 
-  evalCollector?.addTest({
+  const entry: EvalTestEntry = {
     name, suite, tier: 'e2e',
     passed: result.exitReason === 'success' && result.browseErrors.length === 0,
     duration_ms: result.duration,
@@ -190,7 +200,8 @@ export function recordE2E(
     first_response_ms: result.firstResponseMs,
     max_inter_turn_ms: result.maxInterTurnMs,
     ...extra,
-  });
+  };
+  evalCollector?.addTest(entry, result.evalAttempt);
 }
 
 /**

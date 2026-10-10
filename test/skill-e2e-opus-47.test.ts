@@ -20,6 +20,7 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { runSkillTest } from './helpers/session-runner';
 import { EvalCollector } from './helpers/eval-store';
+import { createEvalRunId } from './helpers/eval-lifecycle';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,8 +31,10 @@ const OPUS_47 = 'claude-opus-4-7';
 
 const evalsEnabled = !!process.env.EVALS;
 const describeE2E = evalsEnabled ? describe : describe.skip;
-const evalCollector = evalsEnabled ? new EvalCollector('e2e-opus-47') : null;
-const runId = new Date().toISOString().replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
+const runId = createEvalRunId();
+const evalCollector = evalsEnabled
+  ? new EvalCollector('e2e', undefined, { runId, collectorId: 'e2e-opus-47' })
+  : null;
 
 // --- Helpers ---
 
@@ -233,7 +236,7 @@ describeE2E('Opus 4.7 overlay behavior evals', () => {
           output: `parallel=${parA}`,
           turns_used: resA.costEstimate.turnsUsed,
           exit_reason: resA.exitReason,
-        });
+        }, resA.evalAttempt);
         evalCollector?.addTest({
           name: 'fanout-arm-overlay-off',
           suite: 'Opus 4.7 overlay',
@@ -245,7 +248,7 @@ describeE2E('Opus 4.7 overlay behavior evals', () => {
           output: `parallel=${parB}`,
           turns_used: resB.costEstimate.turnsUsed,
           exit_reason: resB.exitReason,
-        });
+        }, resB.evalAttempt);
 
         // Main assertion: overlay arm is at least as parallel as baseline.
         expect(parA, `overlay arm emitted ${parA} parallel calls, baseline ${parB}`).toBeGreaterThanOrEqual(parB);
@@ -316,7 +319,7 @@ describeE2E('Opus 4.7 overlay behavior evals', () => {
             output: `routed=${routed} actual=${actualSkill ?? '(none)'} expected=${c.shouldRoute ? c.expectedSkill ?? 'any' : '(none)'}`,
             turns_used: r.costEstimate.turnsUsed,
             exit_reason: r.exitReason,
-          });
+          }, r.evalAttempt);
         }
 
         const posCount = ROUTING_CASES.filter((c) => c.shouldRoute).length;

@@ -38,6 +38,12 @@ import * as path from 'path';
 import { resolveClaudeBinary as resolveClaudeBinaryShared } from '../../browse/src/claude-bin';
 import { hermeticChildEnv } from './hermetic-env';
 import type { SkillTestResult } from './session-runner';
+import { getProjectEvalDir } from './eval-store';
+import {
+  recordEvalProgress,
+  startEvalAttempt,
+  type EvalAttempt,
+} from './eval-lifecycle';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +73,7 @@ export interface AgentSdkResult {
   resolvedBinaryPath: string;
   /** browse-error pattern scan for SkillTestResult parity. Always empty here. */
   browseErrors: string[];
+  evalAttempt?: EvalAttempt;
 }
 
 /** Signature matching `query()` from the SDK. DI hook for unit tests. */
@@ -103,6 +110,8 @@ export interface RunAgentSdkOptions {
   pathToClaudeCodeExecutable?: string;
   testName?: string;
   runId?: string;
+  lifecycleJournalPath?: string;
+  lifecycleStderr?: (line: string) => void;
   fixtureId?: string;
   queryProvider?: QueryProvider;
   /** Max 429 retries per call. Default 3. */
@@ -154,10 +163,12 @@ export function passThroughNonAskUserQuestion(
 
 export class RateLimitExhaustedError extends Error {
   readonly attempts: number;
-  constructor(attempts: number, cause?: unknown) {
+  readonly evalAttempt?: EvalAttempt;
+  constructor(attempts: number, cause?: unknown, evalAttempt?: EvalAttempt) {
     super(`rate limit exhausted after ${attempts} attempts`);
     this.name = 'RateLimitExhaustedError';
     this.attempts = attempts;
+    this.evalAttempt = evalAttempt;
     if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
   }
 }
@@ -315,6 +326,15 @@ export async function runAgentSdkTest(
 
   let attempt = 0;
   let lastErr: unknown = null;
+  const lifecycleAttempt = opts.runId && opts.testName
+    ? startEvalAttempt({
+        runId: opts.runId,
+        testName: opts.testName,
+        journalPath: opts.lifecycleJournalPath
+          ?? path.join(path.dirname(getProjectEvalDir()), 'e2e-runs', opts.runId, 'lifecycle.jsonl'),
+        writeStderr: opts.lifecycleStderr,
+      })
+    : undefined;
 
   while (attempt <= maxRetries) {
     await sem.acquire();
@@ -409,6 +429,14 @@ export async function runAgentSdkTest(
                   input: tb.input ?? {},
                   output: '',
                 });
+                if (lifecycleAttempt) {
+                  recordEvalProgress(lifecycleAttempt, {
+                    turn: assistantTurns.length,
+                    toolCount: toolCalls.length,
+                    lastTool: tb.name ?? 'unknown',
+                    writeStderr: opts.lifecycleStderr,
+                  });
+                }
               }
             }
           }
@@ -460,6 +488,7 @@ export async function runAgentSdkTest(
         sdkClaudeCodeVersion: systemInitVersion,
         resolvedBinaryPath: opts.pathToClaudeCodeExecutable ?? 'sdk-default',
         browseErrors: [],
+        evalAttempt: lifecycleAttempt,
       };
     } catch (err) {
       lastErr = err;
@@ -488,13 +517,14 @@ export async function runAgentSdkTest(
           sdkClaudeCodeVersion: systemInitVersion,
           resolvedBinaryPath: opts.pathToClaudeCodeExecutable ?? 'sdk-default',
           browseErrors: [],
+          evalAttempt: lifecycleAttempt,
         };
       }
 
       const isRetryable = isRateLimitThrown(err);
       if (!isRetryable || attempt >= maxRetries) {
         if (isRetryable) {
-          throw new RateLimitExhaustedError(attempt + 1, err);
+          throw new RateLimitExhaustedError(attempt + 1, err, lifecycleAttempt);
         }
         throw err;
       }
@@ -511,7 +541,7 @@ export async function runAgentSdkTest(
     }
   }
 
-  throw new RateLimitExhaustedError(attempt + 1, lastErr);
+  throw new RateLimitExhaustedError(attempt + 1, lastErr, lifecycleAttempt);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +582,7 @@ export function toSkillTestResult(r: AgentSdkResult): SkillTestResult {
     model: r.model,
     firstResponseMs: r.firstResponseMs,
     maxInterTurnMs: r.maxInterTurnMs,
+    evalAttempt: r.evalAttempt,
   };
 }
 

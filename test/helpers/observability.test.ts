@@ -11,9 +11,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { sanitizeTestName } from './session-runner';
-import { EvalCollector } from './eval-store';
-import { renderDashboard } from '../../scripts/eval-watch';
+import { EvalCollector, getPartialEvalFiles } from './eval-store';
+import { renderDashboard, selectWatchState } from '../../scripts/eval-watch';
 import type { HeartbeatData, PartialData } from '../../scripts/eval-watch';
+import type { EvalAttemptSummary } from './eval-lifecycle';
 
 let tmpDir: string;
 
@@ -115,7 +116,7 @@ describe('eval-store observability', () => {
       exit_reason: 'success',
     });
 
-    const partialPath = path.join(evalDir, '_partial-e2e.json');
+    const [partialPath] = getPartialEvalFiles(evalDir);
     expect(fs.existsSync(partialPath)).toBe(true);
 
     const partial = JSON.parse(fs.readFileSync(partialPath, 'utf-8'));
@@ -142,7 +143,7 @@ describe('eval-store observability', () => {
       exit_reason: 'timeout', timeout_at_turn: 5, last_tool_call: 'Bash(ls)',
     });
 
-    const partialPath = path.join(evalDir, '_partial-e2e.json');
+    const [partialPath] = getPartialEvalFiles(evalDir);
     const partial = JSON.parse(fs.readFileSync(partialPath, 'utf-8'));
     expect(partial.tests).toHaveLength(2);
     expect(partial.total_tests).toBe(2);
@@ -162,7 +163,7 @@ describe('eval-store observability', () => {
       passed: true, duration_ms: 1000, cost_usd: 0.05,
     });
 
-    const partialPath = path.join(evalDir, '_partial-e2e.json');
+    const [partialPath] = getPartialEvalFiles(evalDir);
     expect(fs.existsSync(partialPath)).toBe(true);
 
     await collector.finalize();
@@ -187,7 +188,7 @@ describe('eval-store observability', () => {
       last_tool_call: 'Write(review-output.md)',
     });
 
-    const partialPath = path.join(evalDir, '_partial-e2e.json');
+    const [partialPath] = getPartialEvalFiles(evalDir);
     const partial = JSON.parse(fs.readFileSync(partialPath, 'utf-8'));
     const t = partial.tests[0];
     expect(t.exit_reason).toBe('error_max_turns');
@@ -279,5 +280,64 @@ describe('eval-watch dashboard', () => {
     const output = renderDashboard(null, partial);
     expect(output).toContain('browse basic');
     expect(output).toContain('$0.07');
+  });
+
+  test('renderDashboard shows multiple lifecycle attempts and stale state', () => {
+    const attempts: EvalAttemptSummary[] = [
+      {
+        runId: 'run-1', attemptId: 'a', testName: 'first-active', status: 'running',
+        startedAt: '2026-10-10T07:00:00.000Z', lastSignalAt: '2026-10-10T07:05:00.000Z',
+        turn: 3, toolCount: 4, lastTool: 'Read',
+      },
+      {
+        runId: 'run-1', attemptId: 'b', testName: 'second-stale', status: 'stale',
+        startedAt: '2026-10-10T06:00:00.000Z', lastSignalAt: '2026-10-10T06:10:00.000Z',
+      },
+    ];
+
+    const output = renderDashboard(null, null, attempts);
+
+    expect(output).toContain('first-active');
+    expect(output).toContain('second-stale');
+    expect(output).toContain('Running: 1');
+    expect(output).toContain('Stale: 1');
+  });
+
+  test('renderDashboard shows freshness age from the latest lifecycle signal', () => {
+    const now = Date.now;
+    Date.now = () => new Date('2026-10-10T07:05:30.000Z').getTime();
+    try {
+      const attempts: EvalAttemptSummary[] = [{
+        runId: 'run-1', attemptId: 'a', testName: 'fresh-progress', status: 'running',
+        startedAt: '2026-10-10T06:00:00.000Z', lastSignalAt: '2026-10-10T07:05:00.000Z',
+      }];
+
+      const output = renderDashboard(null, null, attempts);
+      expect(output).toContain('30s');
+      expect(output).not.toContain('1h');
+    } finally {
+      Date.now = now;
+    }
+  });
+
+  test('selectWatchState keeps active attempts from concurrent run IDs visible', () => {
+    const attempts: EvalAttemptSummary[] = [
+      {
+        runId: 'run-old-active', attemptId: 'a', testName: 'older-active', status: 'running',
+        startedAt: '2026-10-10T07:00:00.000Z', lastSignalAt: '2026-10-10T07:01:00.000Z',
+      },
+      {
+        runId: 'run-new-complete', attemptId: 'b', testName: 'newer-complete', status: 'pass',
+        startedAt: '2026-10-10T07:02:00.000Z', lastSignalAt: '2026-10-10T07:03:00.000Z',
+      },
+    ];
+    const partials = [
+      { tests: [], total_cost_usd: 0, _partial: true, _run_id: 'run-old-active', timestamp: '2026-10-10T07:01:00.000Z' },
+      { tests: [], total_cost_usd: 0, _partial: true, _run_id: 'run-new-complete', timestamp: '2026-10-10T07:03:00.000Z' },
+    ];
+
+    const selected = selectWatchState(attempts, partials as any);
+    expect(selected.attempts.map((attempt) => attempt.testName)).toContain('older-active');
+    expect(selected.partials.map((partial) => partial._run_id)).toContain('run-old-active');
   });
 });

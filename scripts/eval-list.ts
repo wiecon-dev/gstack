@@ -56,6 +56,7 @@ const runs: RunSummary[] = [];
 for (const file of files) {
   try {
     const data = JSON.parse(fs.readFileSync(path.join(EVAL_DIR, file), 'utf-8'));
+    if (data._partial === true) continue;
     if (filterBranch && data.branch !== filterBranch) continue;
     if (filterTier && data.tier !== filterTier) continue;
     const totalTurns = (data.tests || []).reduce((s: number, t: any) => s + (t.turns_used || 0), 0);

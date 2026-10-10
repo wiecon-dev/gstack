@@ -129,6 +129,52 @@ describe('EvalCollector', () => {
     expect(data.tests).toHaveLength(0);
     expect(data.tier).toBe('llm-judge');
   });
+
+  test('parallel collectors persist isolated partial snapshots without overwriting', () => {
+    const first = new EvalCollector('e2e', tmpDir, { runId: 'run-1', collectorId: 'suite-a' });
+    const second = new EvalCollector('e2e', tmpDir, { runId: 'run-1', collectorId: 'suite-b' });
+
+    first.addTest(makeEntry({ name: 'first-test' }));
+    second.addTest(makeEntry({ name: 'second-test' }));
+
+    const partialDir = path.join(tmpDir, '_partial');
+    const files = fs.readdirSync(partialDir).sort();
+    expect(files).toEqual(['run-1-suite-a.json', 'run-1-suite-b.json']);
+    const snapshots = files.map((file) => JSON.parse(fs.readFileSync(path.join(partialDir, file), 'utf8')));
+    const names = snapshots.map((snapshot) => snapshot.tests[0].name);
+    expect(names).toEqual(['first-test', 'second-test']);
+    expect(snapshots.map((snapshot) => snapshot._run_id)).toEqual(['run-1', 'run-1']);
+    expect(snapshots.map((snapshot) => snapshot._collector_id)).toEqual(['suite-a', 'suite-b']);
+  });
+
+  test('parallel collectors finalized in the same second do not overwrite final results', async () => {
+    const first = new EvalCollector('e2e', tmpDir, { runId: 'run-1', collectorId: 'suite-a' });
+    const second = new EvalCollector('e2e', tmpDir, { runId: 'run-1', collectorId: 'suite-b' });
+
+    first.addTest(makeEntry({ name: 'first-test' }));
+    second.addTest(makeEntry({ name: 'second-test' }));
+
+    const [firstPath, secondPath] = await Promise.all([first.finalize(), second.finalize()]);
+
+    expect(firstPath).not.toBe(secondPath);
+    const names = [firstPath, secondPath]
+      .map((file) => JSON.parse(fs.readFileSync(file, 'utf8')).tests[0].name)
+      .sort();
+    expect(names).toEqual(['first-test', 'second-test']);
+  });
+
+  test('partial persistence failure warns without changing the eval result', () => {
+    const blockedDir = path.join(tmpDir, 'blocked');
+    fs.writeFileSync(blockedDir, 'not a directory');
+    const stderrLines: string[] = [];
+    const collector = new EvalCollector('e2e', blockedDir, {
+      runId: 'run-io', collectorId: 'suite-io',
+      writeStderr: (line) => stderrLines.push(line),
+    });
+
+    expect(() => collector.addTest(makeEntry())).not.toThrow();
+    expect(stderrLines.some((line) => line.includes('WARN partial result write failed'))).toBe(true);
+  });
 });
 
 // --- judgePassed tests ---
@@ -267,6 +313,15 @@ describe('findPreviousRun', () => {
 
     const result = findPreviousRun(tmpDir, 'e2e', 'main', 'current.json');
     expect(result).toBeNull(); // only llm-judge file, looking for e2e
+  });
+
+  test('never selects a partial snapshot as a comparison baseline', () => {
+    const complete = makeResult({ timestamp: '2026-03-14T10:00:00.000Z' });
+    const partial = makeResult({ timestamp: '2026-03-14T12:00:00.000Z', _partial: true });
+    fs.writeFileSync(path.join(tmpDir, 'complete.json'), JSON.stringify(complete));
+    fs.writeFileSync(path.join(tmpDir, '_partial-e2e.json'), JSON.stringify(partial));
+
+    expect(findPreviousRun(tmpDir, 'e2e', 'main', 'current.json')).toBe(path.join(tmpDir, 'complete.json'));
   });
 });
 

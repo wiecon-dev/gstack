@@ -56,7 +56,7 @@ if (args.length === 2) {
   let files: string[];
   try {
     files = fs.readdirSync(EVAL_DIR)
-      .filter(f => f.endsWith('.json'))
+      .filter(f => f.endsWith('.json') && !f.startsWith('_partial'))
       .sort()
       .reverse();
   } catch {
