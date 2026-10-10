@@ -107,7 +107,7 @@ archived. All 15 task checkboxes remain open because a checkbox is not evidence.
   `test/helpers/eval-store.ts` is a global touchfile. Before the commit, the
   same command under-reported this because it ignores uncommitted files.
 - Resume: a fresh session can continue from `openspec/changes/eval-harness-lifecycle-observability/`
-  and this document without the chat transcript. No GO/REVISE/NO-GO yet.
+  and this document without the chat transcript.
 
 ### Change 2 status — 2026-10-10
 
@@ -127,12 +127,39 @@ target; the bytes came from `Runtime.getHeapUsage`. `performance.memory` via
 ### Change 3 status — 2026-10-10
 
 Adam accepted the artifacts for `native-gpu-memory-breakdown` on 2026-10-10
-and then asked for implementation. It is local and uncommitted.
-`bun test browse/test/memory-command.test.ts`: 29 pass, 0 fail. `git diff --check`
-and strict validation passed. A live Chrome for Testing 149 snapshot through
-`projectProcessRss` and `readLinuxVmRssKb` returned browser `rss` 143036416,
-GPU `rss` 120193024, and the Linux VmRSS note. No `process RSS unavailable`
-note and no VRAM field. `ps` was not run. Paid evals were not run.
+and then asked for implementation. The implementation is commit `dcd67a7` on
+`origin/wiecon/openspec-pilot`. `bun test browse/test/memory-command.test.ts`:
+29 pass, 0 fail. `git diff --check` and strict validation passed. A live Chrome
+for Testing 149 snapshot through `projectProcessRss` and `readLinuxVmRssKb`
+returned browser `rss` 143036416, GPU `rss` 120193024, and the Linux VmRSS note.
+No `process RSS unavailable` note and no VRAM field. `ps` was not run. Paid
+evals were not run.
+
+### Pilot decision — GO — 2026-10-10
+
+Adam said GO after the three changes were on `origin/wiecon/openspec-pilot`.
+GO means the next gstack change may use this same OpenSpec loop. It does not
+archive these changes, merge the branch, or mark the empty task checkboxes done.
+
+Why GO, not REVISE or NO-GO:
+
+- Each change had proposal, spec, design, and tasks before implementation, and
+  Adam accepted those artifacts before code.
+- The specs caught false assumptions before they became the contract. Change 2
+  could not use `Performance.getMetrics` on a service worker. Change 3 could not
+  read VRAM from CDP, so the measurement stayed Linux VmRSS.
+- Targeted tests passed: change 1, 106; change 2, 25; change 3, 29. Strict
+  validation passed for each change. Paid evals stayed waived.
+- A fresh session can resume from `openspec/changes/` and this document.
+
+What GO does not claim:
+
+- The repo-wide free baseline was not green. Known gaps remain: gbrain PATH,
+  missing `claude/SKILL.md`, and Playwright Chromium on Ubuntu 26.04.
+- Planning time was not measured.
+- OpenSpec still lists all three changes as in progress because the checkboxes
+  are 0/15, 0/9, and 0/9. The commits are the evidence.
+- Archive and merge still need a separate yes.
 
 ## Rollback
 
