@@ -73,17 +73,42 @@ leaves START without a false END.
 - `git diff --check` and strict OpenSpec validation passed.
 - Full free baseline is not a clean repo-green claim. Known environment
   failures remain (gbrain PATH, missing `claude/SKILL.md`, missing Playwright
-  Chromium). Paid evals were not run.
-- Uncommitted edits to `test/helpers/session-runner.ts` and
-  `test/helpers/eval-store.ts` are global touchfiles, so diff selection would
-  include all 181 E2E tests and all 28 LLM-judge tests. `eval:select` does not
-  see uncommitted files and therefore under-reports this.
+  Chromium). The directory run did not print a final summary and did not cover
+  the rest of `browse/` or `make-pdf`. A later make-pdf sample stopped after 6
+  render failures tied to missing Chromium and pdftotext.
+- Paid model evals were not run. Adam explicitly waived them on 2026-10-10.
 
 ## Evaluation
 
 For each change record planning time, rework caused by unclear requirements,
 spec/code drift, validation failures, and whether a fresh session can resume from
 repository artifacts alone. After three changes choose GO, REVISE, or NO-GO.
+
+### Change 1 record — 2026-10-10
+
+Commit `a7a4557` on `wiecon/openspec-pilot`, pushed to origin. The change is not
+archived. All 15 task checkboxes remain open because a checkbox is not evidence.
+
+- Planning time: not measured. The accepted artifacts were proposal, spec,
+  design, and tasks before any implementation of this change.
+- Requirements: specific enough to implement the journal, isolated partials, and
+  the watcher. The ambiguous point was a rate-limit retry: the spec requires one
+  END after the result is registered, and no false END if the process stops
+  before registration.
+- Rework: review found two blockers, parallel collectors overwriting finals and
+  missing END records in alternate harnesses. After targeted tests were green,
+  the SDK retry path still wrote END and opened a second attempt. A new test
+  failed with journal events `start`, `end`, `start`, then passed after the fix.
+- Validation: strict OpenSpec validation passed. `git diff --check` passed.
+  Targeted tests after the fix: 106 pass, 0 fail, 8.4s. Repo-wide free baseline
+  was not green. Paid evals were waived.
+- Selector: `bun run eval:select` against `origin/main` now reports 119 changed
+  files and selects 181/181 E2E plus 28/28 LLM-judge because
+  `test/helpers/eval-store.ts` is a global touchfile. Before the commit, the
+  same command under-reported this because it ignores uncommitted files.
+- Resume: a fresh session can continue from `openspec/changes/eval-harness-lifecycle-observability/`
+  and this document without the chat transcript. No GO/REVISE/NO-GO yet; two
+  pilot changes remain, and change 2 has no artifacts.
 
 ## Rollback
 
