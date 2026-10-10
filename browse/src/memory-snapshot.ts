@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 // Shared types for the $B memory diagnostic command and the /memory
 // endpoint. Lives in its own module so server.ts, read-commands.ts, and
 // the extension footer poll can import without taking a circular dep on
@@ -40,12 +42,62 @@ export interface MemoryTabSnapshot {
 
 /** Chromium process metadata via CDP SystemInfo.getProcessInfo. */
 export interface MemoryProcess {
-  /** Chromium-internal process id (not OS PID). */
+  /** CDP process id. On Linux Chrome this matched the OS pid. */
   id: number;
-  /** 'browser' | 'renderer' | 'gpu' | 'utility' | 'extension' | ... */
+  /** Raw CDP type, for example `browser` or `GPU`. */
   type: string;
   /** CPU time accumulated since process start (seconds). */
   cpuTime: number;
+  /** Linux VmRSS in bytes, or null when that status line was not readable. */
+  rss?: number | null;
+}
+
+export const PROCESS_RSS_UNAVAILABLE = 'process RSS unavailable';
+export const LINUX_VMRSS_NOTE =
+  'Process RSS is Linux VmRSS, not GPU VRAM and not an Activity Monitor reading.';
+
+/**
+ * Attach RSS bytes from a VmRSS-kilobyte reader.
+ * The reader returns kilobytes, or null when the status line is missing.
+ */
+export function projectProcessRss(
+  processes: MemoryProcess[],
+  readVmRssKb: (id: number) => number | null,
+): { processes: MemoryProcess[]; notes: string[] } {
+  let measured = false;
+  let missing = false;
+  const projected = processes.map((process) => {
+    const kilobytes = readVmRssKb(process.id);
+    if (typeof kilobytes !== 'number') {
+      missing = true;
+      return { ...process, rss: null };
+    }
+    measured = true;
+    return { ...process, rss: kilobytes * 1024 };
+  });
+  const notes: string[] = [];
+  if (missing) notes.push(PROCESS_RSS_UNAVAILABLE);
+  if (measured) notes.push(LINUX_VMRSS_NOTE);
+  return { processes: projected, notes };
+}
+
+/** Pull the VmRSS kilobyte count out of a `/proc/<pid>/status` body. */
+export function readVmRssKilobytes(statusText: string): number | null {
+  const line = statusText.split('\n').find((row) => row.startsWith('VmRSS:'));
+  if (!line) return null;
+  const match = line.match(/(\d+)/);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+/** Read one VmRSS line. Missing files and unreadable ids return null. */
+export function readLinuxVmRssKb(id: number): number | null {
+  if (!Number.isInteger(id) || id <= 0) return null;
+  try {
+    return readVmRssKilobytes(readFileSync(`/proc/${id}/status`, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 export interface MemorySnapshot {
@@ -65,10 +117,9 @@ export interface MemorySnapshot {
    * Chromium process tree. `null` when no browser handle is available
    * (server in connection mode, or browser not yet launched).
    *
-   * Per-process RSS is NOT included: SystemInfo.getProcessInfo returns
-   * id+type+cpuTime but Chromium does not expose RSS via CDP. The
-   * `notes[]` field tells the caller why — see the follow-up TODO
-   * "native/GPU memory breakdown" for the deferred fix.
+   * `rss` is Linux VmRSS in bytes when `/proc/<id>/status` is readable.
+   * CDP itself has no RSS field. Null means that one status line was not
+   * readable, which is not the same as a measured zero.
    */
   processes: MemoryProcess[] | null;
   structures: MemoryStructureStats;

@@ -111,8 +111,9 @@ archived. All 15 task checkboxes remain open because a checkbox is not evidence.
 
 ### Change 2 status — 2026-10-10
 
-Adam accepted the artifacts for `mv3-service-worker-memory-profile`. Implementation
-is local and uncommitted. `bun test browse/test/memory-command.test.ts`:
+Adam accepted the artifacts for `mv3-service-worker-memory-profile`. The
+implementation is commit `96e6149` on `origin/wiecon/openspec-pilot`.
+`bun test browse/test/memory-command.test.ts`:
 25 pass, 0 fail. Playwright 1.58.2 cannot install its own Chromium build on
 Ubuntu 26.04, so the live check used the already installed Chrome for Testing
 149 at `~/.cache/ms-playwright/chromium-1228`. One ephemeral MV3 extension
@@ -122,6 +123,16 @@ and an empty `notes` array. `Performance.getMetrics` is not implemented on that
 target; the bytes came from `Runtime.getHeapUsage`. `performance.memory` via
 `worker.evaluate` returned null. The about:blank page stayed out of
 `serviceWorkers`.
+
+### Change 3 status — 2026-10-10
+
+Adam accepted the artifacts for `native-gpu-memory-breakdown` on 2026-10-10
+and then asked for implementation. It is local and uncommitted.
+`bun test browse/test/memory-command.test.ts`: 29 pass, 0 fail. `git diff --check`
+and strict validation passed. A live Chrome for Testing 149 snapshot through
+`projectProcessRss` and `readLinuxVmRssKb` returned browser `rss` 143036416,
+GPU `rss` 120193024, and the Linux VmRSS note. No `process RSS unavailable`
+note and no VRAM field. `ps` was not run. Paid evals were not run.
 
 ## Rollback
 

@@ -25,6 +25,8 @@ import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
 import {
   collectExtensionServiceWorkers,
+  projectProcessRss,
+  readLinuxVmRssKb,
   type MemorySnapshot,
   type MemoryStructureStats,
   type MemoryTabSnapshot,
@@ -1054,10 +1056,10 @@ export class BrowserManager {
    *     per-tab signal CDP exposes. Misses native/GPU/Skia/cache memory
    *     (Codex flag on the eng-review; see follow-up TODO "native/GPU
    *     memory breakdown").
-   *   - Chromium process tree via SystemInfo.getProcessInfo — PID + type
-   *     + CPU time. Per-process RSS is NOT exposed via CDP and the eng
-   *     review (D2 USE_CDP) explicitly chose CDP over shelling to `ps`,
-   *     so RSS columns are absent and `notes[]` says why.
+   *   - Chromium process tree via SystemInfo.getProcessInfo — id + type
+   *     + CPU time. CDP has no RSS field. On Linux, `rss` is VmRSS from
+   *     `/proc/<id>/status` and is null when that line cannot be read.
+   *     No `ps` process is spawned.
    *
    * `structures` is passed in by the caller (read-commands / server) so
    * browser-manager doesn't take a hard dep on every buffer-owning module.
@@ -1124,15 +1126,14 @@ export class BrowserManager {
               const info = (await browserSession.send('SystemInfo.getProcessInfo')) as {
                 processInfo?: Array<{ id: number; type: string; cpuTime: number }>;
               };
-              processes = (info.processInfo ?? []).map((p) => ({
+              const listed = (info.processInfo ?? []).map((p) => ({
                 id: p.id,
                 type: p.type,
                 cpuTime: p.cpuTime,
               }));
-              notes.push(
-                'Per-Chromium-process RSS not collected — SystemInfo.getProcessInfo exposes PID+type+CPU only. ' +
-                'See follow-up TODO "native/GPU memory breakdown" for the deferred fix.',
-              );
+              const projected = projectProcessRss(listed, readLinuxVmRssKb);
+              processes = projected.processes;
+              notes.push(...projected.notes);
             } catch (err: any) {
               notes.push(`CDP browser session unavailable: ${err?.message ?? String(err)}`);
             }

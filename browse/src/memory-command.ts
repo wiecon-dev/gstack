@@ -50,6 +50,19 @@ function formatSnapshotText(s: MemorySnapshot): string {
       .map(([t, n]) => `${t}=${n}`)
       .join(' ');
     lines.push(`Chromium processes: ${s.processes.length} total  (${typeSummary})`);
+    const rssByType = new Map<string, { bytes: number; measured: boolean }>();
+    for (const process of s.processes) {
+      const current = rssByType.get(process.type) ?? { bytes: 0, measured: false };
+      if (typeof process.rss === 'number') {
+        current.bytes += process.rss;
+        current.measured = true;
+      }
+      rssByType.set(process.type, current);
+    }
+    const rssSummary = [...rssByType.entries()]
+      .map(([type, info]) => `${type} ${info.measured ? formatBytes(info.bytes) : 'unmeasured'}`)
+      .join('; ');
+    lines.push(`Process RSS:       ${rssSummary}`);
   } else if (s.processes === null) {
     lines.push('Chromium processes: (unavailable — see notes)');
   } else {

@@ -247,6 +247,26 @@ describe('handleMemoryCommand', () => {
     expect(result).not.toContain(`tab #`);
   });
 
+  test('28. text sums process RSS by the raw type', async () => {
+    const { handleMemoryCommand } = await import('../src/memory-command');
+    const processes = [
+      { id: 1, type: 'GPU', cpuTime: 1, rss: 100704 * 1024 },
+      { id: 2, type: 'browser', cpuTime: 1, rss: null },
+    ];
+    const result = await handleMemoryCommand([], makeFakeBm(makeSnapshot({
+      processes,
+      notes: ['Process RSS is Linux VmRSS, not GPU VRAM and not an Activity Monitor reading.'],
+    })));
+    expect(result).toContain('Process RSS:');
+    expect(result).toContain('GPU 98.3 MB');
+    expect(result).toContain('browser unmeasured');
+    expect(result).toContain('Bun server:');
+    expect(result).not.toContain('Per-Chromium-process RSS not collected');
+    const parsed = JSON.parse(await handleMemoryCommand(['--json'], makeFakeBm(makeSnapshot({ processes }))));
+    expect(parsed.processes).toEqual(processes);
+    expect(JSON.stringify(parsed).toLowerCase()).not.toContain('vram');
+  });
+
   test('19. text mode keeps the top 10 extension workers', async () => {
     const { handleMemoryCommand } = await import('../src/memory-command');
     const serviceWorkers = Array.from({ length: 12 }, (_, i) => ({
@@ -413,6 +433,44 @@ describe('collectExtensionServiceWorkers', () => {
       },
     ]);
     expect(collected.notes).toEqual([]);
+  });
+});
+
+describe('projectProcessRss', () => {
+  test('26. VmRSS kilobytes become process rss bytes', async () => {
+    const { projectProcessRss } = await import('../src/memory-snapshot');
+    const projected = projectProcessRss(
+      [{ id: 10, type: 'GPU', cpuTime: 1.5 }],
+      () => 100704,
+    );
+    expect(projected.processes).toEqual([
+      { id: 10, type: 'GPU', cpuTime: 1.5, rss: 100704 * 1024 },
+    ]);
+  });
+
+  test('27. one missing status stays null and does not erase the other', async () => {
+    const { projectProcessRss } = await import('../src/memory-snapshot');
+    const projected = projectProcessRss(
+      [
+        { id: 10, type: 'GPU', cpuTime: 1 },
+        { id: 11, type: 'browser', cpuTime: 2 },
+      ],
+      (id) => (id === 11 ? 138420 : null),
+    );
+    expect(projected.processes).toEqual([
+      { id: 10, type: 'GPU', cpuTime: 1, rss: null },
+      { id: 11, type: 'browser', cpuTime: 2, rss: 138420 * 1024 },
+    ]);
+    expect(projected.notes).toContain('process RSS unavailable');
+    expect(projected.notes.join('\n')).toContain('Linux VmRSS');
+    expect(projected.notes.join('\n')).not.toContain('VRAM field');
+  });
+
+  test('29. status text yields kilobytes and a missing pid stays null', async () => {
+    const { readVmRssKilobytes, readLinuxVmRssKb } = await import('../src/memory-snapshot');
+    expect(readVmRssKilobytes('Name:\tchrome\nVmRSS:\t100704 kB\n')).toBe(100704);
+    expect(readVmRssKilobytes('Name:\tchrome\n')).toBe(null);
+    expect(readLinuxVmRssKb(2_000_000_000)).toBe(null);
   });
 });
 
