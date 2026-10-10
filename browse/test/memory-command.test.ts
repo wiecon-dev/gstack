@@ -71,6 +71,7 @@ function makeSnapshot(overrides: Partial<MemorySnapshot> = {}): MemorySnapshot {
       external: 21 * 1024 * 1024,
     },
     tabs: [],
+    serviceWorkers: [],
     processes: null,
     structures: makeStructureStats(),
     capturedAt: 1700000000000,
@@ -227,6 +228,191 @@ describe('handleMemoryCommand', () => {
     expect(result).toContain('...');
     // The truncated URL appears, the full URL does not
     expect(result.includes(longUrl)).toBe(false);
+  });
+
+  test('18. extension service worker is listed apart from tabs', async () => {
+    const { handleMemoryCommand } = await import('../src/memory-command');
+    const url = 'chrome-extension://abcdefghijklmnop/service-worker.js';
+    const result = await handleMemoryCommand([], makeFakeBm(makeSnapshot({
+      tabs: [],
+      serviceWorkers: [{
+        url,
+        jsHeapUsed: 2 * 1024 * 1024,
+        jsHeapTotal: 4 * 1024 * 1024,
+      }],
+    })));
+    expect(result).toContain('Service workers:');
+    expect(result).toContain(url);
+    expect(result).toContain('(no tabs tracked)');
+    expect(result).not.toContain(`tab #`);
+  });
+
+  test('19. text mode keeps the top 10 extension workers', async () => {
+    const { handleMemoryCommand } = await import('../src/memory-command');
+    const serviceWorkers = Array.from({ length: 12 }, (_, i) => ({
+      url: `chrome-extension://id${String(i).padStart(2, '0')}/sw.js`,
+      jsHeapUsed: (12 - i) * 1024 * 1024,
+      jsHeapTotal: (12 - i) * 2 * 1024 * 1024,
+    }));
+    const result = await handleMemoryCommand([], makeFakeBm(makeSnapshot({ serviceWorkers })));
+    expect(result).toContain('Service workers:   12 extension');
+    expect(result).toContain('chrome-extension://id00/sw.js');
+    expect(result).not.toContain('chrome-extension://id10/sw.js');
+    expect(result).toContain('...and 2 more');
+  });
+
+  test('20. an empty measured list says none without the unavailable note', async () => {
+    const { handleMemoryCommand } = await import('../src/memory-command');
+    const result = await handleMemoryCommand([], makeFakeBm(makeSnapshot({
+      serviceWorkers: [],
+      notes: ['Per-Chromium-process RSS not collected — CDP limitation.'],
+    })));
+    expect(result).toContain('Service workers:   (none)');
+    expect(result).not.toContain('service worker targets unavailable');
+    expect(result).toContain('CDP limitation.');
+  });
+
+  test('21. --json keeps the service worker out of tabs', async () => {
+    const { handleMemoryCommand } = await import('../src/memory-command');
+    const url = 'chrome-extension://abcdefghijklmnop/service-worker.js';
+    const raw = await handleMemoryCommand(['--json'], makeFakeBm(makeSnapshot({
+      serviceWorkers: [{ url, jsHeapUsed: null, jsHeapTotal: null }],
+    })));
+    const parsed = JSON.parse(raw);
+    expect(parsed.serviceWorkers).toEqual([{ url, jsHeapUsed: null, jsHeapTotal: null }]);
+    expect(parsed.tabs).toEqual([]);
+  });
+});
+
+describe('projectExtensionServiceWorkers', () => {
+  test('22. keeps only extension service workers and a failed metric stays null', async () => {
+    const { projectExtensionServiceWorkers } = await import('../src/memory-snapshot');
+    const projected = projectExtensionServiceWorkers({
+      sessionAvailable: true,
+      targets: [
+        { targetId: 'ext', type: 'service_worker', url: 'chrome-extension://abcdefghijklmnop/sw.js' },
+        { targetId: 'off', type: 'other', url: 'chrome-extension://abcdefghijklmnop/offscreen.html' },
+        { targetId: 'page', type: 'service_worker', url: 'https://example.com/sw.js' },
+        { targetId: 'ok', type: 'service_worker', url: 'chrome-extension://zzzzzzzzzzzzzzzz/sw.js' },
+      ],
+      metrics: [
+        { targetId: 'ext', ok: false },
+        { targetId: 'ok', ok: true, jsHeapUsed: 4096, jsHeapTotal: 8192 },
+      ],
+    });
+    expect(projected.serviceWorkers).toEqual([
+      { url: 'chrome-extension://abcdefghijklmnop/sw.js', jsHeapUsed: null, jsHeapTotal: null },
+      { url: 'chrome-extension://zzzzzzzzzzzzzzzz/sw.js', jsHeapUsed: 4096, jsHeapTotal: 8192 },
+    ]);
+    expect(projected.notes.join('\n')).toContain('service worker heap unavailable');
+    expect(projected.notes.join('\n')).not.toContain('service worker targets unavailable');
+  });
+
+  test('23. a missing browser session is not a measured zero', async () => {
+    const { projectExtensionServiceWorkers } = await import('../src/memory-snapshot');
+    const projected = projectExtensionServiceWorkers({
+      sessionAvailable: false,
+      targets: [{ targetId: 'ext', type: 'service_worker', url: 'chrome-extension://abcdefghijklmnop/sw.js' }],
+      metrics: [],
+    });
+    expect(projected.serviceWorkers).toEqual([]);
+    expect(projected.notes).toContain('service worker targets unavailable');
+  });
+});
+
+describe('collectExtensionServiceWorkers', () => {
+  test('24. reads heap through the worker CDP session and detaches it', async () => {
+    const { collectExtensionServiceWorkers } = await import('../src/memory-snapshot');
+    const calls: string[] = [];
+    const child = {
+      async send(method: string) {
+        calls.push(method);
+        if (method === 'Performance.getMetrics') {
+          return {
+            metrics: [
+              { name: 'JSHeapUsedSize', value: 111 },
+              { name: 'JSHeapTotalSize', value: 222 },
+            ],
+          };
+        }
+        return {};
+      },
+      async detach() {
+        calls.push('detach');
+      },
+    };
+    const session = {
+      async send(method: string) {
+        calls.push(method);
+        if (method === 'Target.getTargets') {
+          return {
+            targetInfos: [
+              { targetId: 'ext', type: 'service_worker', url: 'chrome-extension://abcdefghijklmnop/sw.js' },
+              { targetId: 'page', type: 'page', url: 'https://example.com/' },
+            ],
+          };
+        }
+        return {};
+      },
+      async attachToTarget(targetId: string) {
+        calls.push(`attach:${targetId}`);
+        return child;
+      },
+    };
+    const collected = await collectExtensionServiceWorkers(session);
+    expect(collected.serviceWorkers).toEqual([
+      { url: 'chrome-extension://abcdefghijklmnop/sw.js', jsHeapUsed: 111, jsHeapTotal: 222 },
+    ]);
+    expect(calls).toContain('attach:ext');
+    expect(calls).toContain('detach');
+    expect(collected.notes).toEqual([]);
+  });
+
+  test('25. reads heap through a flattened-off CDP reply when no child session exists', async () => {
+    const { collectExtensionServiceWorkers } = await import('../src/memory-snapshot');
+    const listeners: Array<(event: { sessionId?: string; message?: string }) => void> = [];
+    const session = {
+      on(_event: string, fn: (event: { sessionId?: string; message?: string }) => void) {
+        listeners.push(fn);
+      },
+      off(_event: string, fn: (event: { sessionId?: string; message?: string }) => void) {
+        const index = listeners.indexOf(fn);
+        if (index >= 0) listeners.splice(index, 1);
+      },
+      async send(method: string, params?: Record<string, unknown>) {
+        if (method === 'Target.getTargets') {
+          return {
+            targetInfos: [
+              { targetId: 'ext', type: 'service_worker', url: 'chrome-extension://abcdefghijklmnop/sw.js' },
+            ],
+          };
+        }
+        if (method === 'Target.attachToTarget') return { sessionId: 'child-1' };
+        if (method === 'Target.sendMessageToTarget') {
+          const message = JSON.parse(String(params?.message));
+          for (const listener of [...listeners]) {
+            listener({
+              sessionId: String(params?.sessionId),
+              message: JSON.stringify({
+                id: message.id,
+                result: { usedSize: 466500, totalSize: 1048576 },
+              }),
+            });
+          }
+          return {};
+        }
+        return {};
+      },
+    };
+    const collected = await collectExtensionServiceWorkers(session);
+    expect(collected.serviceWorkers).toEqual([
+      {
+        url: 'chrome-extension://abcdefghijklmnop/sw.js',
+        jsHeapUsed: 466500,
+        jsHeapTotal: 1048576,
+      },
+    ]);
+    expect(collected.notes).toEqual([]);
   });
 });
 

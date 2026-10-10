@@ -23,7 +23,13 @@ import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
-import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
+import {
+  collectExtensionServiceWorkers,
+  type MemorySnapshot,
+  type MemoryStructureStats,
+  type MemoryTabSnapshot,
+  type MemoryProcess,
+} from './memory-snapshot';
 
 /**
  * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
@@ -1093,6 +1099,7 @@ export class BrowserManager {
     // (launched mode) or accessible via `context.browser()` (persistent
     // context / headed mode); try both.
     let processes: MemoryProcess[] | null = null;
+    let serviceWorkers: MemorySnapshot['serviceWorkers'] = [];
     const browser: Browser | null = this.browser ?? (this.context ? this.context.browser() : null);
     if (browser) {
       try {
@@ -1101,37 +1108,57 @@ export class BrowserManager {
         // Browser instance — use a typed cast to avoid the @ts-expect-error.
         type BrowserWithCDP = Browser & {
           newBrowserCDPSession?: () => Promise<{
-            send: (method: string, params?: unknown) => Promise<unknown>;
+            send: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
             detach: () => Promise<void>;
+            attachToTarget?: (targetId: string) => Promise<{
+              send: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+              detach?: () => Promise<void>;
+            }>;
           }>;
         };
         const maybeFactory = (browser as BrowserWithCDP).newBrowserCDPSession;
         if (typeof maybeFactory === 'function') {
           const browserSession = await maybeFactory.call(browser);
           try {
-            const info = (await browserSession.send('SystemInfo.getProcessInfo')) as {
-              processInfo?: Array<{ id: number; type: string; cpuTime: number }>;
-            };
-            processes = (info.processInfo ?? []).map((p) => ({
-              id: p.id,
-              type: p.type,
-              cpuTime: p.cpuTime,
-            }));
-            notes.push(
-              'Per-Chromium-process RSS not collected — SystemInfo.getProcessInfo exposes PID+type+CPU only. ' +
-              'See follow-up TODO "native/GPU memory breakdown" for the deferred fix.',
-            );
+            try {
+              const info = (await browserSession.send('SystemInfo.getProcessInfo')) as {
+                processInfo?: Array<{ id: number; type: string; cpuTime: number }>;
+              };
+              processes = (info.processInfo ?? []).map((p) => ({
+                id: p.id,
+                type: p.type,
+                cpuTime: p.cpuTime,
+              }));
+              notes.push(
+                'Per-Chromium-process RSS not collected — SystemInfo.getProcessInfo exposes PID+type+CPU only. ' +
+                'See follow-up TODO "native/GPU memory breakdown" for the deferred fix.',
+              );
+            } catch (err: any) {
+              notes.push(`CDP browser session unavailable: ${err?.message ?? String(err)}`);
+            }
+            const workers = await collectExtensionServiceWorkers(browserSession);
+            serviceWorkers = workers.serviceWorkers;
+            notes.push(...workers.notes);
           } finally {
             await browserSession.detach().catch(() => undefined);
           }
         } else {
           notes.push('Playwright build does not expose newBrowserCDPSession; per-process info skipped.');
+          const workers = await collectExtensionServiceWorkers(null);
+          serviceWorkers = workers.serviceWorkers;
+          notes.push(...workers.notes);
         }
       } catch (err: any) {
         notes.push(`CDP browser session unavailable: ${err?.message ?? String(err)}`);
+        const workers = await collectExtensionServiceWorkers(null);
+        serviceWorkers = workers.serviceWorkers;
+        notes.push(...workers.notes);
       }
     } else {
       notes.push('Browser handle unavailable (server connection mode); per-process info skipped.');
+      const workers = await collectExtensionServiceWorkers(null);
+      serviceWorkers = workers.serviceWorkers;
+      notes.push(...workers.notes);
     }
 
     return {
@@ -1142,6 +1169,7 @@ export class BrowserManager {
         external: bunMem.external,
       },
       tabs,
+      serviceWorkers,
       processes,
       structures,
       capturedAt: Date.now(),

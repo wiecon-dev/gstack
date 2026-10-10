@@ -107,8 +107,21 @@ archived. All 15 task checkboxes remain open because a checkbox is not evidence.
   `test/helpers/eval-store.ts` is a global touchfile. Before the commit, the
   same command under-reported this because it ignores uncommitted files.
 - Resume: a fresh session can continue from `openspec/changes/eval-harness-lifecycle-observability/`
-  and this document without the chat transcript. No GO/REVISE/NO-GO yet; two
-  pilot changes remain, and change 2 has no artifacts.
+  and this document without the chat transcript. No GO/REVISE/NO-GO yet.
+
+### Change 2 status — 2026-10-10
+
+Adam accepted the artifacts for `mv3-service-worker-memory-profile`. Implementation
+is local and uncommitted. `bun test browse/test/memory-command.test.ts`:
+25 pass, 0 fail. Playwright 1.58.2 cannot install its own Chromium build on
+Ubuntu 26.04, so the live check used the already installed Chrome for Testing
+149 at `~/.cache/ms-playwright/chromium-1228`. One ephemeral MV3 extension
+loaded in a persistent context. `collectExtensionServiceWorkers` returned the
+`chrome-extension://` worker with `jsHeapUsed` 466500 and `jsHeapTotal` 1048576,
+and an empty `notes` array. `Performance.getMetrics` is not implemented on that
+target; the bytes came from `Runtime.getHeapUsage`. `performance.memory` via
+`worker.evaluate` returned null. The about:blank page stayed out of
+`serviceWorkers`.
 
 ## Rollback
 

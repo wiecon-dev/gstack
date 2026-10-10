@@ -19,6 +19,13 @@ export interface MemoryStructureStats {
   captureBufferBytes: number;
 }
 
+/** Extension MV3 service worker JS heap. Null means the target was seen but not measured. */
+export interface MemoryServiceWorkerSnapshot {
+  url: string;
+  jsHeapUsed: number | null;
+  jsHeapTotal: number | null;
+}
+
 /** Per-tab JS heap snapshot (CDP Performance.getMetrics). */
 export interface MemoryTabSnapshot {
   id: number;
@@ -50,6 +57,11 @@ export interface MemorySnapshot {
   };
   tabs: MemoryTabSnapshot[];
   /**
+   * Extension service workers (`chrome-extension://`), separate from tabs.
+   * Omitted only by older fixtures; new snapshots always set an array.
+   */
+  serviceWorkers?: MemoryServiceWorkerSnapshot[];
+  /**
    * Chromium process tree. `null` when no browser handle is available
    * (server in connection mode, or browser not yet launched).
    *
@@ -62,6 +74,188 @@ export interface MemorySnapshot {
   structures: MemoryStructureStats;
   capturedAt: number;
   notes: string[];
+}
+
+export interface ExtensionWorkerTarget {
+  targetId: string;
+  type: string;
+  url: string;
+}
+
+export interface ExtensionWorkerMetric {
+  targetId: string;
+  ok: boolean;
+  jsHeapUsed?: number;
+  jsHeapTotal?: number;
+}
+
+const EXTENSION_WORKER_URL = 'chrome-extension://';
+
+/**
+ * Turn a CDP target list into the public serviceWorkers snapshot.
+ * A missing session is not the same result as a successful query that
+ * found zero extension workers.
+ */
+export function projectExtensionServiceWorkers(input: {
+  sessionAvailable: boolean;
+  targets: ExtensionWorkerTarget[];
+  metrics: ExtensionWorkerMetric[];
+}): { serviceWorkers: MemoryServiceWorkerSnapshot[]; notes: string[] } {
+  if (!input.sessionAvailable) {
+    return {
+      serviceWorkers: [],
+      notes: ['service worker targets unavailable'],
+    };
+  }
+
+  const metricsById = new Map(input.metrics.map((metric) => [metric.targetId, metric]));
+  const serviceWorkers: MemoryServiceWorkerSnapshot[] = [];
+  let heapUnavailable = false;
+  for (const target of input.targets) {
+    if (target.type !== 'service_worker') continue;
+    if (!target.url.startsWith(EXTENSION_WORKER_URL)) continue;
+    const metric = metricsById.get(target.targetId);
+    if (!metric?.ok || typeof metric.jsHeapUsed !== 'number' || typeof metric.jsHeapTotal !== 'number') {
+      heapUnavailable = true;
+      serviceWorkers.push({ url: target.url, jsHeapUsed: null, jsHeapTotal: null });
+      continue;
+    }
+    serviceWorkers.push({
+      url: target.url,
+      jsHeapUsed: metric.jsHeapUsed,
+      jsHeapTotal: metric.jsHeapTotal,
+    });
+  }
+
+  return {
+    serviceWorkers,
+    notes: heapUnavailable ? ['service worker heap unavailable'] : [],
+  };
+}
+
+export interface ExtensionWorkerCdpSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  detach?(): Promise<void>;
+  attachToTarget?(targetId: string): Promise<ExtensionWorkerCdpSession>;
+  on?(event: string, listener: (payload: { sessionId?: string; message?: string }) => void): void;
+  off?(event: string, listener: (payload: { sessionId?: string; message?: string }) => void): void;
+}
+
+type TargetInfo = { targetId?: string; type?: string; url?: string };
+
+function heapFromMetrics(result: { metrics?: Array<{ name: string; value: number }> } | null): {
+  jsHeapUsed: number;
+  jsHeapTotal: number;
+} {
+  const metrics: Record<string, number> = {};
+  for (const metric of result?.metrics ?? []) metrics[metric.name] = metric.value;
+  if (typeof metrics.JSHeapUsedSize !== 'number' || typeof metrics.JSHeapTotalSize !== 'number') {
+    throw new Error('JS heap metrics missing');
+  }
+  return { jsHeapUsed: metrics.JSHeapUsedSize, jsHeapTotal: metrics.JSHeapTotalSize };
+}
+
+function heapFromUsage(result: { usedSize?: number; totalSize?: number } | null): {
+  jsHeapUsed: number;
+  jsHeapTotal: number;
+} {
+  if (typeof result?.usedSize !== 'number' || typeof result?.totalSize !== 'number') {
+    throw new Error('heap usage missing');
+  }
+  return { jsHeapUsed: result.usedSize, jsHeapTotal: result.totalSize };
+}
+
+async function readWorkerHeapViaTunnel(
+  session: ExtensionWorkerCdpSession,
+  targetId: string,
+): Promise<{ jsHeapUsed: number; jsHeapTotal: number }> {
+  const attached = await session.send('Target.attachToTarget', { targetId, flatten: false }) as { sessionId?: string };
+  const sessionId = attached?.sessionId;
+  if (!sessionId) throw new Error('attach failed');
+  const commandId = 1;
+  let listener: ((payload: { sessionId?: string; message?: string }) => void) | null = null;
+  try {
+    const reply = new Promise<{ usedSize?: number; totalSize?: number }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('heap reply timed out')), 1000);
+      listener = (payload) => {
+        if (payload.sessionId !== sessionId || !payload.message) return;
+        let parsed: { id?: number; error?: { message?: string }; result?: { usedSize?: number; totalSize?: number } };
+        try {
+          parsed = JSON.parse(payload.message);
+        } catch {
+          return;
+        }
+        if (parsed.id !== commandId) return;
+        clearTimeout(timer);
+        if (parsed.error) reject(new Error(parsed.error.message ?? 'heap reply failed'));
+        else resolve(parsed.result ?? {});
+      };
+      session.on?.('Target.receivedMessageFromTarget', listener);
+    });
+    await session.send('Target.sendMessageToTarget', {
+      sessionId,
+      message: JSON.stringify({ id: commandId, method: 'Runtime.getHeapUsage' }),
+    });
+    return heapFromUsage(await reply);
+  } finally {
+    if (listener) session.off?.('Target.receivedMessageFromTarget', listener);
+    await session.send('Target.detachFromTarget', { sessionId }).catch(() => undefined);
+  }
+}
+
+async function readWorkerHeap(
+  session: ExtensionWorkerCdpSession,
+  targetId: string,
+): Promise<{ jsHeapUsed: number; jsHeapTotal: number }> {
+  if (typeof session.attachToTarget !== 'function') {
+    return readWorkerHeapViaTunnel(session, targetId);
+  }
+  const child = await session.attachToTarget(targetId);
+  try {
+    await Promise.resolve(child.send('Performance.enable')).catch(() => undefined);
+    const result = await child.send('Performance.getMetrics') as {
+      metrics?: Array<{ name: string; value: number }>;
+    };
+    return heapFromMetrics(result);
+  } finally {
+    await child.detach?.().catch(() => undefined);
+  }
+}
+
+/**
+ * List extension service workers through a browser CDP session.
+ * `null` means the session itself could not be opened.
+ */
+export async function collectExtensionServiceWorkers(
+  session: ExtensionWorkerCdpSession | null,
+): Promise<{ serviceWorkers: MemoryServiceWorkerSnapshot[]; notes: string[] }> {
+  if (!session) {
+    return projectExtensionServiceWorkers({ sessionAvailable: false, targets: [], metrics: [] });
+  }
+  let infos: TargetInfo[];
+  try {
+    const listed = await session.send('Target.getTargets') as { targetInfos?: TargetInfo[] };
+    infos = listed?.targetInfos ?? [];
+  } catch {
+    return projectExtensionServiceWorkers({ sessionAvailable: false, targets: [], metrics: [] });
+  }
+
+  const targets: ExtensionWorkerTarget[] = [];
+  for (const info of infos) {
+    if (!info.targetId || !info.type || !info.url) continue;
+    targets.push({ targetId: info.targetId, type: info.type, url: info.url });
+  }
+  const metrics: ExtensionWorkerMetric[] = [];
+  for (const target of targets) {
+    if (target.type !== 'service_worker' || !target.url.startsWith(EXTENSION_WORKER_URL)) continue;
+    try {
+      const heap = await readWorkerHeap(session, target.targetId);
+      metrics.push({ targetId: target.targetId, ok: true, ...heap });
+    } catch {
+      metrics.push({ targetId: target.targetId, ok: false });
+    }
+  }
+  return projectExtensionServiceWorkers({ sessionAvailable: true, targets, metrics });
 }
 
 /** Format bytes as a short human string ("1.4 GB", "312 MB", "84 KB"). */

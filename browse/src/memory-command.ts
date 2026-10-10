@@ -77,6 +77,31 @@ function formatSnapshotText(s: MemorySnapshot): string {
     lines.push('Renderers:         (no tabs tracked)');
   }
 
+  // Absent field means an old fixture that never asked. An empty array
+  // means we looked and found no extension service workers.
+  if (s.serviceWorkers) {
+  const workers = s.serviceWorkers;
+  if (workers.length === 0) {
+    lines.push('Service workers:   (none)');
+  } else {
+    const sorted = [...workers].sort((a, b) => {
+      const av = a.jsHeapUsed ?? -1;
+      const bv = b.jsHeapUsed ?? -1;
+      return bv - av;
+    });
+    const shown = sorted.slice(0, 10);
+    lines.push(`Service workers:   ${workers.length} extension (top by JS heap):`);
+    for (const w of shown) {
+      const heap = w.jsHeapUsed == null ? 'unmeasured JS' : `${formatBytes(w.jsHeapUsed).padStart(8)} JS`;
+      const urlShort = w.url.length > 80 ? w.url.slice(0, 77) + '...' : w.url;
+      lines.push(`  [${heap}] ${urlShort}`);
+    }
+    if (sorted.length > shown.length) {
+      lines.push(`  ...and ${sorted.length - shown.length} more`);
+    }
+  }
+  }
+
   lines.push('─────────────────────────────────────────────────');
   lines.push('In-memory structures (Bun side):');
   const m = s.structures.modificationHistory;
